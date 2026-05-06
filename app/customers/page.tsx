@@ -197,6 +197,29 @@ export default function CustomersPage() {
     }
   }, []);
 
+  // Voice assistant: open customer profile via navigation or in-page event
+  useEffect(() => {
+    if (!data) return;
+    const cmd = sessionStorage.getItem('voice-nav');
+    if (cmd) {
+      try {
+        const parsed = JSON.parse(cmd);
+        if (parsed.type === 'open_customer' && parsed.customerId) {
+          sessionStorage.removeItem('voice-nav');
+          const cust = data.customers.find(c => c.id === parsed.customerId);
+          if (cust) { setSelected(cust); setModal('view'); }
+        }
+      } catch { sessionStorage.removeItem('voice-nav'); }
+    }
+    const handler = (e: Event) => {
+      const { customerId } = (e as CustomEvent<{ customerId: string }>).detail;
+      const cust = data.customers.find(c => c.id === customerId);
+      if (cust) { setSelected(cust); setModal('view'); }
+    };
+    window.addEventListener('voice:open-customer', handler);
+    return () => window.removeEventListener('voice:open-customer', handler);
+  }, [data]);
+
   const handleConnectGoogle = () => {
     if (!user?.id) return;
     window.location.href = `/api/google/auth?userId=${user.id}&returnTo=/customers`;

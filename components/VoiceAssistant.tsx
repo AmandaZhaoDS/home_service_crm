@@ -3,14 +3,20 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLanguage, SPEECH_LANG } from '../lib/i18n';
 import { useAuth } from './AuthProvider';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 interface VoiceResult {
-  type: 'customers' | 'jobs' | 'note' | 'error' | 'info';
+  type: 'customers' | 'jobs' | 'note' | 'error' | 'info' | 'open_customer' | 'open_job' | 'navigate' | 'add_note' | 'note_saved';
   message: string;
   customers?: { id: string; name: string; email: string; phone: string }[];
   jobs?: { id: string; title: string; customer: string; status: string; date: string; amount: number }[];
   noteAdded?: string;
+  customerId?: string;
+  customerName?: string;
+  jobId?: string;
+  jobTitle?: string;
+  path?: string;
+  note?: string;
 }
 
 interface ISpeechRecognition extends EventTarget {
@@ -39,8 +45,9 @@ declare global {
 
 export default function VoiceAssistant() {
   const { t, lang } = useLanguage();
-  const { data } = useAuth();
+  const { data, updateData } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const isDashboard = pathname === '/';
 
   const [open, setOpen] = useState(false);
@@ -58,6 +65,50 @@ export default function VoiceAssistant() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) setSupported(false); // eslint-disable-next-line
   }, []);
+
+  // Execute navigation/note-save side-effects when result arrives
+  useEffect(() => {
+    if (!result) return;
+
+    if (result.type === 'navigate' && result.path) {
+      router.push(result.path);
+      return;
+    }
+
+    if (result.type === 'open_customer' && result.customerId) {
+      if (pathname === '/customers') {
+        window.dispatchEvent(new CustomEvent('voice:open-customer', { detail: { customerId: result.customerId } }));
+      } else {
+        sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_customer', customerId: result.customerId }));
+        router.push('/customers');
+      }
+      return;
+    }
+
+    if (result.type === 'open_job' && result.jobId) {
+      if (pathname === '/jobs') {
+        window.dispatchEvent(new CustomEvent('voice:open-job', { detail: { jobId: result.jobId } }));
+      } else {
+        sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_job', jobId: result.jobId }));
+        router.push('/jobs');
+      }
+      return;
+    }
+
+    if (result.type === 'add_note' && result.note) {
+      if (result.jobId && data) {
+        const job = data.jobs.find(j => j.id === result.jobId);
+        if (job) {
+          const updatedNote = job.notes ? `${job.notes}\n${result.note}` : result.note;
+          updateData({ ...data, jobs: data.jobs.map(j => j.id === result.jobId ? { ...j, notes: updatedNote } : j) });
+          setResult(prev => prev ? { ...prev, type: 'note_saved', noteAdded: result.note } : null);
+          return;
+        }
+      }
+      // No job matched — show the note text for manual use
+      setResult(prev => prev ? { ...prev, type: 'note', noteAdded: result.note } : null);
+    }
+  }, [result?.type, result?.customerId, result?.jobId, result?.path]); // eslint-disable-line
 
   const stopListening = useCallback(() => {
     recogRef.current?.stop();
@@ -93,7 +144,6 @@ export default function VoiceAssistant() {
     recog.onerror = () => stopListening();
     recog.onend = async () => {
       stopListening();
-      const finalText = recogRef.current ? '' : transcript;
       const text = document.getElementById('vox-transcript')?.getAttribute('data-text') ?? '';
       if (text.trim().length < 2) return;
       await processVoice(text);
@@ -135,7 +185,6 @@ export default function VoiceAssistant() {
     else startListening();
   };
 
-  // Store transcript in DOM for the onend handler to access
   useEffect(() => {
     const el = document.getElementById('vox-transcript');
     if (el) el.setAttribute('data-text', transcript);
@@ -143,14 +192,18 @@ export default function VoiceAssistant() {
 
   if (!supported && !open) return null;
 
+  const actionIcon = (type: VoiceResult['type']) => {
+    if (type === 'open_customer' || type === 'open_job') return '→';
+    if (type === 'navigate') return '↗';
+    if (type === 'note_saved') return '✓';
+    return null;
+  };
+
   return (
     <>
-      {/* Hidden transcript store */}
       <span id="vox-transcript" className="hidden" data-text=""/>
 
-      {/* Floating Voice Button */}
       <div className={`fixed z-40 ${isDashboard ? 'bottom-8 right-8' : 'bottom-6 right-6'}`}>
-        {/* Panel */}
         {open && (
           <div className={`absolute bottom-full mb-3 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden
             ${isDashboard ? 'w-80' : 'w-72'}`}>
@@ -171,7 +224,7 @@ export default function VoiceAssistant() {
             </div>
 
             <div className="p-4 space-y-3">
-              {/* Mic button in panel */}
+              {/* Mic button */}
               <div className="flex flex-col items-center gap-3">
                 <button
                   onClick={handleMicClick}
@@ -199,7 +252,7 @@ export default function VoiceAssistant() {
                 </div>
               )}
 
-              {/* Processing indicator */}
+              {/* Processing */}
               {processing && (
                 <div className="flex items-center justify-center gap-2 py-2">
                   <div className="flex gap-1">
@@ -215,6 +268,7 @@ export default function VoiceAssistant() {
               {/* Results */}
               {result && !processing && (
                 <div className="space-y-2">
+                  {/* Customer list */}
                   {result.type === 'customers' && result.customers && result.customers.length > 0 && (
                     <div>
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('voice.customers')}</p>
@@ -235,6 +289,7 @@ export default function VoiceAssistant() {
                     </div>
                   )}
 
+                  {/* Job list */}
                   {result.type === 'jobs' && result.jobs && result.jobs.length > 0 && (
                     <div>
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('voice.jobs')}</p>
@@ -253,28 +308,59 @@ export default function VoiceAssistant() {
                     </div>
                   )}
 
-                  {result.type === 'note' && (
+                  {/* Open customer / open job — action confirmation */}
+                  {(result.type === 'open_customer' || result.type === 'open_job' || result.type === 'navigate') && (
+                    <div className="bg-blue-50 rounded-xl p-3 flex items-center gap-2">
+                      <span className="text-blue-600 text-base font-bold">{actionIcon(result.type)}</span>
+                      <div>
+                        <p className="text-sm font-semibold text-blue-800">{result.message}</p>
+                        {result.type === 'open_customer' && result.customerName && (
+                          <p className="text-xs text-blue-600 mt-0.5">{result.customerName}</p>
+                        )}
+                        {result.type === 'open_job' && result.jobTitle && (
+                          <p className="text-xs text-blue-600 mt-0.5">{result.jobTitle}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Note saved */}
+                  {(result.type === 'note_saved' || result.type === 'note') && (
                     <div className="bg-green-50 rounded-xl p-3 flex items-start gap-2">
                       <span className="text-green-600 text-sm">✓</span>
                       <div>
-                        <p className="text-sm font-semibold text-green-800">{t('voice.note')}</p>
+                        <p className="text-sm font-semibold text-green-800">
+                          {result.type === 'note_saved' && result.jobTitle ? `Note saved to ${result.jobTitle}` : t('voice.note')}
+                        </p>
                         {result.noteAdded && <p className="text-xs text-green-700 mt-0.5">"{result.noteAdded}"</p>}
                       </div>
                     </div>
                   )}
 
+                  {/* add_note before save (no job matched) */}
+                  {result.type === 'add_note' && !result.jobId && (
+                    <div className="bg-amber-50 rounded-xl p-3">
+                      <p className="text-sm font-semibold text-amber-800">Note ready</p>
+                      {result.note && <p className="text-xs text-amber-700 mt-0.5">"{result.note}"</p>}
+                      <p className="text-xs text-amber-600 mt-1">No matching job found — open a job to add manually.</p>
+                    </div>
+                  )}
+
+                  {/* Info */}
                   {result.type === 'info' && (
                     <div className="bg-gray-50 rounded-xl p-3">
                       <p className="text-sm text-gray-700">{result.message}</p>
                     </div>
                   )}
 
+                  {/* Error */}
                   {result.type === 'error' && (
                     <div className="bg-red-50 rounded-xl p-3">
                       <p className="text-sm text-red-600">{result.message}</p>
                     </div>
                   )}
 
+                  {/* Empty search results */}
                   {((result.type === 'customers' && (!result.customers || result.customers.length === 0)) ||
                     (result.type === 'jobs' && (!result.jobs || result.jobs.length === 0))) && (
                     <div className="bg-gray-50 rounded-xl p-3 text-center">
@@ -297,7 +383,7 @@ export default function VoiceAssistant() {
           </div>
         )}
 
-        {/* Main FAB button */}
+        {/* FAB */}
         <button
           onClick={handleToggle}
           title={t('voice.title')}
@@ -311,12 +397,7 @@ export default function VoiceAssistant() {
           {listening && (
             <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-40"/>
           )}
-          {open ? (
-            <MicIcon className={`text-white relative z-10 ${isDashboard ? 'w-7 h-7' : 'w-5 h-5'}`}/>
-          ) : (
-            <MicIcon className={`text-white relative z-10 ${isDashboard ? 'w-7 h-7' : 'w-5 h-5'}`}/>
-          )}
-          {/* Indicator dot */}
+          <MicIcon className={`text-white relative z-10 ${isDashboard ? 'w-7 h-7' : 'w-5 h-5'}`}/>
           <span className={`absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white
             ${listening ? 'bg-red-500 animate-pulse' : 'bg-green-400'}`}/>
         </button>

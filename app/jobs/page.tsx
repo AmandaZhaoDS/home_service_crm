@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
 import { Job, JobStatus, JobItem } from '../../lib/fieldproStorage';
@@ -261,6 +261,29 @@ export default function JobsPage() {
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<'none'|'create'|'estimate'|'edit'|'view'>('none');
   const [selected, setSelected] = useState<Job|null>(null);
+
+  // Voice assistant: open job detail via navigation or in-page event
+  useEffect(() => {
+    if (!data) return;
+    const cmd = sessionStorage.getItem('voice-nav');
+    if (cmd) {
+      try {
+        const parsed = JSON.parse(cmd);
+        if (parsed.type === 'open_job' && parsed.jobId) {
+          sessionStorage.removeItem('voice-nav');
+          const job = data.jobs.find(j => j.id === parsed.jobId);
+          if (job) { setSelected(job); setModal('view'); }
+        }
+      } catch { sessionStorage.removeItem('voice-nav'); }
+    }
+    const handler = (e: Event) => {
+      const { jobId } = (e as CustomEvent<{ jobId: string }>).detail;
+      const job = data.jobs.find(j => j.id === jobId);
+      if (job) { setSelected(job); setModal('view'); }
+    };
+    window.addEventListener('voice:open-job', handler);
+    return () => window.removeEventListener('voice:open-job', handler);
+  }, [data]);
 
   const filtered = useMemo(()=>{
     let list = activeTab==='all' ? jobs : jobs.filter(j=>j.status===activeTab);

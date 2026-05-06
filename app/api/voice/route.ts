@@ -4,21 +4,25 @@ interface CustomerCtx { id: string; name: string; email: string; phone: string; 
 interface JobCtx { id: string; title: string; customer: string; status: string; date: string; amount: number; notes: string; }
 
 const SYSTEM = `You are an AI assistant for a home service CRM app called FieldPro Jobs.
-The user speaks a voice command (in any language) and you must parse the intent and search the provided data.
+The user speaks a voice command (in any language) and you must parse the intent.
 
 RESPOND ONLY with valid JSON, no markdown, no explanation.
 
-Actions you can take:
-1. search_customers - when user wants to find/search customers
-2. search_jobs - when user wants to find/search jobs or work orders
-3. add_note - when user wants to add a note (extract the note text)
-4. info - for general info or navigation requests
+Actions:
+1. search_customers - list matching customers by search term
+2. search_jobs - list matching jobs by search term or status
+3. open_customer - open a specific customer profile (user says "open/show/view/go to [name]")
+4. open_job - open a specific job record (user says "open/show/view [job name]")
+5. add_note - add a note to a specific job (extract note text and job target)
+6. navigate - go to a page (customers, jobs, invoices, schedule, dashboard/home)
+7. info - general question or fallback
 
 JSON format:
 {
-  "action": "search_customers" | "search_jobs" | "add_note" | "info",
-  "query": "extracted search term or note text",
-  "message": "brief response message in same language as user's input"
+  "action": "search_customers" | "search_jobs" | "open_customer" | "open_job" | "add_note" | "navigate" | "info",
+  "query": "search term for search_* actions | note text for add_note | page name for navigate",
+  "targetName": "specific customer or job name (required for open_customer, open_job, add_note)",
+  "message": "brief response in same language as user input"
 }`;
 
 export async function POST(req: NextRequest) {
@@ -37,14 +41,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const context = `
-Customers in system (${customers.length} total):
-${customers.slice(0, 50).map(c => `- ${c.name} | ${c.email} | ${c.phone}`).join('\n')}
+Customers (${customers.length} total):
+${customers.slice(0, 50).map(c => `[${c.id}] ${c.name} | ${c.email} | ${c.phone}`).join('\n')}
 
-Jobs in system (${jobs.length} total):
-${jobs.slice(0, 50).map(j => `- [${j.status}] ${j.title} | Customer: ${j.customer} | $${j.amount}`).join('\n')}
+Jobs (${jobs.length} total):
+${jobs.slice(0, 50).map(j => `[${j.id}] [${j.status}] ${j.title} | ${j.customer} | $${j.amount}`).join('\n')}
 
-User language code: ${lang}
-User voice command: "${transcript}"`;
+Language: ${lang}
+Voice command: "${transcript}"`;
 
     const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -63,33 +67,67 @@ User voice command: "${transcript}"`;
 
     const aiJson = await aiRes.json();
     const text = aiJson.content?.[0]?.text ?? '{}';
-    let parsed: { action: string; query: string; message: string };
+    let parsed: { action: string; query: string; targetName?: string; message: string };
     try { parsed = JSON.parse(text); } catch { return NextResponse.json(clientSearch(transcript, customers, jobs)); }
 
-    const { action, query, message } = parsed;
+    const { action, query, targetName, message } = parsed;
 
     if (action === 'search_customers') {
-      const q = query.toLowerCase();
+      const q = (query || '').toLowerCase();
       const matched = customers.filter(c =>
-        c.name.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q) ||
-        c.phone.includes(q)
+        c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.includes(q)
       ).slice(0, 5);
       return NextResponse.json({ type: 'customers', message, customers: matched });
     }
 
     if (action === 'search_jobs') {
-      const q = query.toLowerCase();
+      const q = (query || '').toLowerCase();
       const matched = jobs.filter(j =>
-        j.title.toLowerCase().includes(q) ||
-        j.customer.toLowerCase().includes(q) ||
-        j.status.toLowerCase().includes(q)
+        j.title.toLowerCase().includes(q) || j.customer.toLowerCase().includes(q) || j.status.toLowerCase().includes(q)
       ).slice(0, 5);
       return NextResponse.json({ type: 'jobs', message, jobs: matched });
     }
 
+    if (action === 'open_customer') {
+      const name = (targetName || query || '').toLowerCase();
+      const found = customers.find(c => c.name.toLowerCase().includes(name))
+        ?? customers.find(c => name.split(' ').some(w => w.length > 1 && c.name.toLowerCase().includes(w)));
+      if (found) return NextResponse.json({ type: 'open_customer', customerId: found.id, customerName: found.name, message: message || `Opening ${found.name}` });
+      return NextResponse.json({ type: 'info', message: `Customer not found: ${targetName || query}` });
+    }
+
+    if (action === 'open_job') {
+      const name = (targetName || query || '').toLowerCase();
+      const found = jobs.find(j => j.title.toLowerCase().includes(name))
+        ?? jobs.find(j => name.split(' ').some(w => w.length > 1 && j.title.toLowerCase().includes(w)));
+      if (found) return NextResponse.json({ type: 'open_job', jobId: found.id, jobTitle: found.title, message: message || `Opening ${found.title}` });
+      return NextResponse.json({ type: 'info', message: `Job not found: ${targetName || query}` });
+    }
+
     if (action === 'add_note') {
-      return NextResponse.json({ type: 'note', message, noteAdded: query });
+      const name = (targetName || '').toLowerCase();
+      const note = query || '';
+      let jobId: string | undefined;
+      let jobTitle: string | undefined;
+      if (name) {
+        const found = jobs.find(j => j.title.toLowerCase().includes(name))
+          ?? jobs.find(j => j.customer.toLowerCase().includes(name));
+        if (found) { jobId = found.id; jobTitle = found.title; }
+      }
+      return NextResponse.json({ type: 'add_note', jobId, jobTitle, note, message: message || (jobTitle ? `Adding note to ${jobTitle}` : 'Note ready') });
+    }
+
+    if (action === 'navigate') {
+      const dest = (query || '').toLowerCase();
+      const pathMap: Record<string, string> = {
+        dashboard: '/', home: '/', main: '/',
+        customers: '/customers', customer: '/customers', contacts: '/customers',
+        jobs: '/jobs', job: '/jobs', work: '/jobs',
+        invoices: '/invoices', invoice: '/invoices', billing: '/invoices',
+        schedule: '/schedule', calendar: '/schedule',
+      };
+      const path = Object.entries(pathMap).find(([k]) => dest.includes(k))?.[1] ?? '/';
+      return NextResponse.json({ type: 'navigate', path, message: message || `Navigating...` });
     }
 
     return NextResponse.json({ type: 'info', message: message || transcript });
@@ -106,7 +144,6 @@ function clientSearch(transcript: string, customers: CustomerCtx[], jobs: JobCtx
 
   const isCustomer = custKeywords.some(k => q.includes(k));
   const isJob = jobKeywords.some(k => q.includes(k));
-
   const words = transcript.split(/\s+/).filter(w => w.length > 1);
 
   if (isJob || (!isCustomer && q.length > 3)) {
