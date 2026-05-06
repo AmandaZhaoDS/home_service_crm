@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
+import { useT } from '../../lib/i18n';
 import { Customer } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
 
@@ -20,18 +21,19 @@ function ImportContactsModal({ contacts, onImport, onClose }: {
   onImport: (selectedIds: string[]) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   return (
-    <Modal title={`Import Contacts (${contacts.length})`} onClose={onClose} size="lg">
+    <Modal title={`${t('cust.importTitle')} (${contacts.length})`} onClose={onClose} size="lg">
       <div className="space-y-4">
         <div className="flex gap-2">
           <button onClick={() => setSelected(new Set(contacts.map(c => c.id)))}
             className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
-            Select All
+            {t('common.selectAll')}
           </button>
           <button onClick={() => setSelected(new Set())}
             className="text-xs font-semibold text-gray-600 hover:text-gray-700 bg-gray-100 px-3 py-1.5 rounded-lg">
-            Clear All
+            {t('common.clearAll')}
           </button>
         </div>
         <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
@@ -54,7 +56,7 @@ function ImportContactsModal({ contacts, onImport, onClose }: {
         </div>
         <button onClick={() => onImport(Array.from(selected))} disabled={selected.size === 0}
           className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          Import {selected.size > 0 ? `${selected.size} Contact${selected.size !== 1 ? 's' : ''}` : 'Contacts'}
+          {t('cust.importBtn')} {selected.size > 0 ? `${selected.size}` : ''}
         </button>
       </div>
     </Modal>
@@ -65,56 +67,53 @@ interface FormData { name:string; email:string; phone:string; address:string; }
 function blankForm(): FormData { return {name:'',email:'',phone:'',address:''}; }
 function custToForm(c: Customer): FormData { return {name:c.name,email:c.email,phone:c.phone,address:c.address}; }
 
-// ─── Customer Form Modal ──────────────────────────────────────────────────────
-
 function CustomerFormModal({ initial, onSave, onClose }: {
   initial?: Customer; onSave:(f:FormData)=>void; onClose:()=>void;
 }) {
+  const t = useT();
   const [f, setF] = useState<FormData>(initial ? custToForm(initial) : blankForm());
   const set = <K extends keyof FormData>(k:K,v:string) => setF(p=>({...p,[k]:v}));
   const valid = f.name.trim() && f.email.trim();
 
   return (
-    <Modal title={initial ? 'Edit Customer' : 'Add Customer'} onClose={onClose} size="md">
+    <Modal title={initial ? t('cust.edit') : t('cust.add')} onClose={onClose} size="md">
       <div className="space-y-4">
         <div>
-          <label className={LABEL_CLS}>Full Name *</label>
+          <label className={LABEL_CLS}>{t('cust.fullName')}</label>
           <input className={INPUT_CLS} value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Jane Smith"/>
         </div>
         <div>
-          <label className={LABEL_CLS}>Email *</label>
+          <label className={LABEL_CLS}>{t('cust.email')}</label>
           <input type="email" className={INPUT_CLS} value={f.email} onChange={e=>set('email',e.target.value)} placeholder="jane@example.com"/>
         </div>
         <div>
-          <label className={LABEL_CLS}>Phone</label>
+          <label className={LABEL_CLS}>{t('cust.phone')}</label>
           <input type="tel" className={INPUT_CLS} value={f.phone} onChange={e=>set('phone',e.target.value)} placeholder="(555) 123-4567"/>
         </div>
         <div>
-          <label className={LABEL_CLS}>Address</label>
+          <label className={LABEL_CLS}>{t('cust.address')}</label>
           <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)} placeholder="123 Main St, San Jose, CA"/>
         </div>
         <button onClick={()=>{ if(valid) onSave(f); }} disabled={!valid}
           className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {initial ? 'Save Changes' : 'Add Customer'}
+          {initial ? t('cust.saveBtn') : t('cust.addBtn')}
         </button>
       </div>
     </Modal>
   );
 }
 
-// ─── Customer Detail Modal ────────────────────────────────────────────────────
-
 function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
   customer: Customer;
   jobs: { title:string; status:string; date:string; amount:number }[];
   onEdit: ()=>void; onClose: ()=>void;
 }) {
+  const t = useT();
   const totalSpent = jobs.filter(j=>j.status==='paid').reduce((s,j)=>s+j.amount,0);
 
   return (
-    <Modal title="Customer Details" onClose={onClose} size="md">
+    <Modal title={t('cust.details')} onClose={onClose} size="md">
       <div className="space-y-5">
-        {/* Header */}
         <div className="flex items-center gap-4">
           <div className={`w-14 h-14 rounded-2xl ${avatarColor(customer.name)} flex items-center justify-center text-white text-xl font-bold flex-shrink-0`}>
             {initials(customer.name)}
@@ -125,13 +124,12 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
           </div>
         </div>
 
-        {/* Info */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label:'Phone', value:customer.phone||'—' },
-            { label:'Address', value:customer.address||'—' },
-            { label:'Total Jobs', value:jobs.length.toString() },
-            { label:'Total Paid', value:`$${totalSpent.toFixed(2)}` },
+            { label: t('cust.phone_lbl'), value: customer.phone||'—' },
+            { label: t('cust.address_lbl'), value: customer.address||'—' },
+            { label: t('cust.totalJobs_lbl'), value: jobs.length.toString() },
+            { label: t('cust.totalPaid'), value: `$${totalSpent.toFixed(2)}` },
           ].map(item=>(
             <div key={item.label} className="bg-gray-50 rounded-xl p-3">
               <p className="text-xs text-gray-500 mb-0.5">{item.label}</p>
@@ -140,10 +138,9 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
           ))}
         </div>
 
-        {/* Recent Jobs */}
         {jobs.length>0 && (
           <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Job History</p>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('cust.jobHistory')}</p>
             <div className="space-y-2">
               {jobs.slice(0,5).map((j,i)=>(
                 <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
@@ -162,17 +159,16 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
         )}
 
         <button onClick={onEdit} className="w-full border border-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
-          Edit Customer
+          {t('cust.edit')}
         </button>
       </div>
     </Modal>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
-
 export default function CustomersPage() {
   const { user, data, updateData } = useAuth();
+  const t = useT();
   const customers = data?.customers ?? [];
   const jobs = data?.jobs ?? [];
 
@@ -207,7 +203,7 @@ export default function CustomersPage() {
   };
 
   const handleDisconnectGoogle = async () => {
-    if (!user?.id || !confirm('Disconnect Google account?')) return;
+    if (!user?.id || !confirm(t('common.confirm'))) return;
     try {
       await fetch('/api/google/disconnect', {
         method: 'DELETE',
@@ -240,7 +236,6 @@ export default function CustomersPage() {
     if (toAdd.length > 0) {
       updateData({ ...data, customers: [...(data.customers ?? []), ...toAdd] });
       setShowImportModal(false);
-      alert(`Imported ${toAdd.length} contact${toAdd.length !== 1 ? 's' : ''}`);
     } else {
       alert('All selected contacts are already in your customer list');
     }
@@ -257,18 +252,14 @@ export default function CustomersPage() {
     if (existingId) {
       updateData({...data, customers:data.customers.map(c=>c.id===existingId?{...c,...f}:c)});
     } else {
-      const newCust: Customer = {
-        id:uid(), ...f,
-        totalJobs:0, totalSpent:0,
-        lastService:new Date().toISOString().split('T')[0],
-      };
+      const newCust: Customer = { id:uid(), ...f, totalJobs:0, totalSpent:0, lastService:new Date().toISOString().split('T')[0] };
       updateData({...data, customers:[newCust,...data.customers]});
     }
     setModal('none'); setSelected(null);
   };
 
   const deleteCustomer = (id: string) => {
-    if (!data || !confirm('Delete this customer?')) return;
+    if (!data || !confirm(t('cust.deleteConfirm'))) return;
     updateData({...data, customers:data.customers.filter(c=>c.id!==id)});
     setModal('none'); setSelected(null);
   };
@@ -281,19 +272,54 @@ export default function CustomersPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('cust.title')}</h1>
         <button onClick={()=>{setModal('create');setSelected(null);}}
           className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
-          + Add Customer
+          {t('cust.add')}
         </button>
       </div>
+
+      {/* Google Connect Banner — consistent position with Schedule page (before stats) */}
+      {!googleConnected && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900">{t('cust.googleBanner')}</h3>
+              <p className="text-sm text-blue-700 mt-1">{t('cust.googleBannerSub')}</p>
+            </div>
+            <button onClick={handleConnectGoogle}
+              className="flex-shrink-0 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors whitespace-nowrap">
+              {t('google.connect')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {googleConnected && (
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-green-900">{t('google.connected')}</p>
+            <p className="text-sm text-green-700 mt-0.5">{t('cust.googleConnectedSub')}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleFetchContacts} disabled={isLoadingGoogle}
+              className="text-sm font-semibold text-green-700 bg-white border border-green-300 px-3 py-1.5 rounded-lg hover:bg-green-50 disabled:opacity-50 transition-colors">
+              {isLoadingGoogle ? t('google.importing') : t('google.import')}
+            </button>
+            <button onClick={handleDisconnectGoogle}
+              className="text-sm font-semibold text-red-600 hover:text-red-700 px-3 py-1.5">
+              {t('google.disconnect')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label:'Total Customers', value:customers.length, color:'bg-blue-600' },
-          { label:'Total Jobs', value:jobs.length, color:'bg-emerald-500' },
-          { label:'Total Revenue', value:`$${totalRevenue.toFixed(0)}`, color:'bg-indigo-600' },
+          { label: t('cust.totalCustomers'), value: customers.length, color: 'bg-blue-600' },
+          { label: t('cust.totalJobs'), value: jobs.length, color: 'bg-emerald-500' },
+          { label: t('cust.totalRevenue'), value: `$${totalRevenue.toFixed(0)}`, color: 'bg-indigo-600' },
         ].map(stat=>(
           <div key={stat.label} className={`${stat.color} rounded-2xl p-4 text-white`}>
             <p className="text-sm opacity-80">{stat.label}</p>
@@ -302,48 +328,12 @@ export default function CustomersPage() {
         ))}
       </div>
 
-      {/* Google Connect Banner */}
-      {!googleConnected && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <h3 className="font-semibold text-blue-900">Import Customers from Google Contacts</h3>
-              <p className="text-sm text-blue-700 mt-1">Connect Google to import your contacts directly as customers.</p>
-            </div>
-            <button onClick={handleConnectGoogle}
-              className="flex-shrink-0 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors whitespace-nowrap">
-              Connect Google
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Google Connected Actions */}
-      {googleConnected && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-green-900">✓ Google account connected</p>
-            <p className="text-sm text-green-700 mt-0.5">Import contacts from Google to add them as customers</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleFetchContacts} disabled={isLoadingGoogle}
-              className="text-sm font-semibold text-green-700 bg-white border border-green-300 px-3 py-1.5 rounded-lg hover:bg-green-50 disabled:opacity-50 transition-colors">
-              {isLoadingGoogle ? 'Loading...' : '📇 Import Contacts'}
-            </button>
-            <button onClick={handleDisconnectGoogle}
-              className="text-sm font-semibold text-red-600 hover:text-red-700 px-3 py-1.5">
-              Disconnect
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="M21 21l-4.35-4.35"/></svg>
-            <input type="text" placeholder="Search by name, email, or phone..." value={search}
+            <input type="text" placeholder={t('cust.searchPlaceholder')} value={search}
               onChange={e=>setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-gray-50"/>
           </div>
@@ -353,7 +343,7 @@ export default function CustomersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {['Customer','Contact','Address','Jobs','Last Service','Actions'].map(h=>(
+                {[t('cust.colCustomer'),t('cust.colContact'),t('cust.colAddress'),t('cust.colJobs'),t('cust.colLastService'),t('cust.colActions')].map(h=>(
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -381,11 +371,11 @@ export default function CustomersPage() {
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <button onClick={()=>{setSelected(c);setModal('view');}}
-                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">View</button>
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">{t('common.view')}</button>
                         <button onClick={()=>{setSelected(c);setModal('edit');}}
-                          className="border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">Edit</button>
+                          className="border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">{t('common.edit')}</button>
                         <button onClick={()=>deleteCustomer(c.id)}
-                          className="border border-red-100 text-red-400 hover:bg-red-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">Delete</button>
+                          className="border border-red-100 text-red-400 hover:bg-red-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">{t('common.delete')}</button>
                       </div>
                     </td>
                   </tr>
@@ -393,17 +383,12 @@ export default function CustomersPage() {
               })}
             </tbody>
           </table>
-          {filtered.length===0 && <div className="text-center py-14 text-gray-400 text-sm">No customers found.</div>}
+          {filtered.length===0 && <div className="text-center py-14 text-gray-400 text-sm">{t('cust.noCustomers')}</div>}
         </div>
       </div>
 
-      {/* Modals */}
-      {modal==='create' && (
-        <CustomerFormModal onSave={f=>saveCustomer(f)} onClose={()=>setModal('none')}/>
-      )}
-      {modal==='edit' && selected && (
-        <CustomerFormModal initial={selected} onSave={f=>saveCustomer(f,selected.id)} onClose={()=>setModal('none')}/>
-      )}
+      {modal==='create' && <CustomerFormModal onSave={f=>saveCustomer(f)} onClose={()=>setModal('none')}/>}
+      {modal==='edit' && selected && <CustomerFormModal initial={selected} onSave={f=>saveCustomer(f,selected.id)} onClose={()=>setModal('none')}/>}
       {modal==='view' && selected && (
         <CustomerDetailModal
           customer={selected}

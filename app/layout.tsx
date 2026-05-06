@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '../components/AuthProvider';
 import AuthBoundary from '../components/AuthBoundary';
+import { LanguageProvider } from '../lib/i18n';
 
 export const metadata: Metadata = {
   title: 'FieldPro Jobs - HomeService CRM',
@@ -16,9 +17,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased bg-slate-50 text-slate-900">
-        <AuthProvider>
-          <AuthBoundary>{children}</AuthBoundary>
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <AuthBoundary>{children}</AuthBoundary>
+          </AuthProvider>
+        </LanguageProvider>
       </body>
     </html>
   );
