@@ -39,26 +39,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Restore session on mount
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session) {
-        const record = await fetchUserRecord(session.user.id, session.user.email!);
-        setUser(record.user);
-        setData(record.data);
-      }
-      setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (session) {
+          const record = await fetchUserRecord(session.user.id, session.user.email!);
+          setUser(record.user);
+          setData(record.data);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
 
     // Keep session in sync (tab focus, token refresh, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
+      if (event === 'SIGNED_OUT') {
         setUser(null);
         setData(null);
         return;
       }
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        const record = await fetchUserRecord(session.user.id, session.user.email!);
-        setUser(record.user);
-        setData(record.data);
+      // Ignore events with no session (e.g. INITIAL_SESSION on unauthenticated mount)
+      // to avoid wiping state set by register()
+      if (!session) return;
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        try {
+          const record = await fetchUserRecord(session.user.id, session.user.email!);
+          setUser(record.user);
+          setData(record.data);
+        } catch {
+          // fetchUserRecord failed; keep existing state
+        }
       }
     });
 
