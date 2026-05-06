@@ -47,7 +47,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setData(null);
-        // Ensure loading is cleared even if it fires before INITIAL_SESSION
         if (!initialSessionFired) { initialSessionFired = true; setLoading(false); }
         return;
       }
@@ -55,13 +54,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'INITIAL_SESSION') {
         initialSessionFired = true;
         if (session) {
-          try {
-            const record = await fetchUserRecord(session.user.id, session.user.email!);
-            setUser(record.user);
-            setData(record.data);
-          } catch { /* keep null; loading will still clear */ }
+          // Set a placeholder user immediately so the app doesn't redirect to /login
+          // while user data is still loading from Supabase.
+          setUser(prev => prev ?? {
+            id: session.user.id,
+            name: session.user.email!.split('@')[0],
+            email: session.user.email!,
+          });
+          // Resolve loading right away — don't await the DB fetch.
+          setLoading(false);
+          // Load full profile + CRM data in the background.
+          fetchUserRecord(session.user.id, session.user.email!)
+            .then(record => { setUser(record.user); setData(record.data); })
+            .catch(() => {});
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
         return;
       }
 
