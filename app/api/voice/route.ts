@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     jobs: JobCtx[];
   };
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(clientSearch(transcript, customers, jobs));
   }
@@ -50,23 +50,24 @@ ${jobs.slice(0, 50).map(j => `[${j.id}] [${j.status}] ${j.title} | ${j.customer}
 Language: ${lang}
 Voice command: "${transcript}"`;
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'gpt-4o-mini',
         max_tokens: 512,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: context }],
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: context },
+        ],
       }),
     });
 
     const aiJson = await aiRes.json();
-    const text = aiJson.content?.[0]?.text ?? '{}';
+    const text = aiJson.choices?.[0]?.message?.content ?? '{}';
     let parsed: { action: string; query: string; targetName?: string; message: string };
     try { parsed = JSON.parse(text); } catch { return NextResponse.json(clientSearch(transcript, customers, jobs)); }
 
