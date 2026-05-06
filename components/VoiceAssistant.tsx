@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLanguage, SPEECH_LANG } from '../lib/i18n';
 import { useAuth } from './AuthProvider';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 
 interface VoiceResult {
   type: 'customers' | 'jobs' | 'note' | 'error' | 'info' | 'open_customer' | 'open_job' | 'navigate' | 'add_note' | 'note_saved';
@@ -47,7 +47,6 @@ export default function VoiceAssistant() {
   const { t, lang } = useLanguage();
   const { data, updateData } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
   const isDashboard = pathname === '/';
 
   const [open, setOpen] = useState(false);
@@ -71,7 +70,7 @@ export default function VoiceAssistant() {
     if (!result) return;
 
     if (result.type === 'navigate' && result.path) {
-      router.push(result.path);
+      window.location.href = result.path;
       return;
     }
 
@@ -80,7 +79,7 @@ export default function VoiceAssistant() {
         window.dispatchEvent(new CustomEvent('voice:open-customer', { detail: { customerId: result.customerId } }));
       } else {
         sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_customer', customerId: result.customerId }));
-        router.push('/customers');
+        window.location.href = '/customers';
       }
       return;
     }
@@ -90,7 +89,7 @@ export default function VoiceAssistant() {
         window.dispatchEvent(new CustomEvent('voice:open-job', { detail: { jobId: result.jobId } }));
       } else {
         sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_job', jobId: result.jobId }));
-        router.push('/jobs');
+        window.location.href = '/jobs';
       }
       return;
     }

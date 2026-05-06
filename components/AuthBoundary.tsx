@@ -26,13 +26,15 @@ export default function AuthBoundary({ children }: { children: React.ReactNode }
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">{children}</div>;
   }
 
-  if (loading || !user) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
         <div className="text-sm text-slate-500">Loading your dashboard...</div>
       </div>
     );
   }
+
+  if (!user) return null;
 
   return <DashboardLayout>{children}</DashboardLayout>;
 }

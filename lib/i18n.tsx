@@ -888,12 +888,11 @@ const LangContext = createContext<LangContextValue>({
 });
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>('en');
-
-  useEffect(() => {
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === 'undefined') return 'en';
     const saved = localStorage.getItem('fpLang') as Lang | null;
-    if (saved && T[saved]) setLangState(saved);
-  }, []);
+    return (saved && T[saved]) ? saved : 'en';
+  });
 
   const setLang = (l: Lang) => {
     setLangState(l);
