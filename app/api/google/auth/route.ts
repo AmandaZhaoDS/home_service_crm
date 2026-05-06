@@ -8,11 +8,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
   }
 
+  const returnTo = request.nextUrl.searchParams.get('returnTo') ?? '/schedule';
   const state = crypto.randomUUID();
   const cookieStore = await cookies();
 
-  // Store state and userId in httpOnly cookie for verification in callback
-  cookieStore.set('google_oauth', JSON.stringify({ state, userId }), {
+  // Store state, userId and returnTo in httpOnly cookie for verification in callback
+  cookieStore.set('google_oauth', JSON.stringify({ state, userId, returnTo }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     maxAge: 600, // 10 minutes

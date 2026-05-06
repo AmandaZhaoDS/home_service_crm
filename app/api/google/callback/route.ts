@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${appUrl}/schedule?google_error=session_expired`);
   }
 
-  let savedState: { state: string; userId: string };
+  let savedState: { state: string; userId: string; returnTo?: string };
   try {
     savedState = JSON.parse(savedCookie);
   } catch {
@@ -54,7 +54,8 @@ export async function GET(request: NextRequest) {
       updated_at: new Date().toISOString(),
     });
 
-    return NextResponse.redirect(`${appUrl}/schedule?google_connected=true`);
+    const returnTo = savedState.returnTo ?? '/schedule';
+    return NextResponse.redirect(`${appUrl}${returnTo}?google_connected=true`);
   } catch (err) {
     console.error('Token exchange error:', err);
     return NextResponse.redirect(`${appUrl}/schedule?google_error=token_exchange_failed`);

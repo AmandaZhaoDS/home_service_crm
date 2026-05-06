@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { Customer } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
@@ -12,6 +12,54 @@ function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? cr
 
 const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
 const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
+
+interface GoogleContact { id: string; name: string; email: string; phone: string; address: string; }
+
+function ImportContactsModal({ contacts, onImport, onClose }: {
+  contacts: GoogleContact[];
+  onImport: (selectedIds: string[]) => void;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  return (
+    <Modal title={`Import Contacts (${contacts.length})`} onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <button onClick={() => setSelected(new Set(contacts.map(c => c.id)))}
+            className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
+            Select All
+          </button>
+          <button onClick={() => setSelected(new Set())}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-700 bg-gray-100 px-3 py-1.5 rounded-lg">
+            Clear All
+          </button>
+        </div>
+        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
+          {contacts.map(contact => (
+            <div key={contact.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors">
+              <input type="checkbox" checked={selected.has(contact.id)}
+                onChange={e => {
+                  const next = new Set(selected);
+                  e.target.checked ? next.add(contact.id) : next.delete(contact.id);
+                  setSelected(next);
+                }}
+                className="w-4 h-4 rounded cursor-pointer"/>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">{contact.name}</p>
+                {contact.email && <p className="text-xs text-gray-500 truncate">{contact.email}</p>}
+                {contact.phone && <p className="text-xs text-gray-500">{contact.phone}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => onImport(Array.from(selected))} disabled={selected.size === 0}
+          className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+          Import {selected.size > 0 ? `${selected.size} Contact${selected.size !== 1 ? 's' : ''}` : 'Contacts'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
 
 interface FormData { name:string; email:string; phone:string; address:string; }
 function blankForm(): FormData { return {name:'',email:'',phone:'',address:''}; }
@@ -124,13 +172,79 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CustomersPage() {
-  const { data, updateData } = useAuth();
+  const { user, data, updateData } = useAuth();
   const customers = data?.customers ?? [];
   const jobs = data?.jobs ?? [];
 
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<'none'|'create'|'edit'|'view'>('none');
   const [selected, setSelected] = useState<Customer|null>(null);
+
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleContacts, setGoogleContacts] = useState<GoogleContact[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/google/status?userId=${user.id}`)
+      .then(r => r.json())
+      .then(({ connected }) => setGoogleConnected(connected))
+      .catch(() => {});
+  }, [user?.id]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google_connected') === 'true') {
+      setGoogleConnected(true);
+      window.history.replaceState({}, '', '/customers');
+    }
+  }, []);
+
+  const handleConnectGoogle = () => {
+    if (!user?.id) return;
+    window.location.href = `/api/google/auth?userId=${user.id}&returnTo=/customers`;
+  };
+
+  const handleDisconnectGoogle = async () => {
+    if (!user?.id || !confirm('Disconnect Google account?')) return;
+    try {
+      await fetch('/api/google/disconnect', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      setGoogleConnected(false);
+      setGoogleContacts([]);
+    } catch { alert('Failed to disconnect'); }
+  };
+
+  const handleFetchContacts = async () => {
+    if (!user?.id) return;
+    setIsLoadingGoogle(true);
+    try {
+      const res = await fetch(`/api/google/contacts?userId=${user.id}`);
+      const { contacts } = await res.json();
+      setGoogleContacts(contacts || []);
+      setShowImportModal(true);
+    } catch { alert('Failed to fetch Google contacts'); }
+    finally { setIsLoadingGoogle(false); }
+  };
+
+  const handleImportContacts = (selectedIds: string[]) => {
+    if (!data) return;
+    const toAdd = googleContacts
+      .filter(c => selectedIds.includes(c.id))
+      .filter(c => !(data.customers ?? []).some(ex => ex.name === c.name))
+      .map(c => ({ id: uid(), name: c.name, email: c.email, phone: c.phone, address: c.address, totalJobs: 0, totalSpent: 0, lastService: new Date().toISOString().split('T')[0] }));
+    if (toAdd.length > 0) {
+      updateData({ ...data, customers: [...(data.customers ?? []), ...toAdd] });
+      setShowImportModal(false);
+      alert(`Imported ${toAdd.length} contact${toAdd.length !== 1 ? 's' : ''}`);
+    } else {
+      alert('All selected contacts are already in your customer list');
+    }
+  };
 
   const filtered = useMemo(()=>{
     if (!search.trim()) return customers;
@@ -187,6 +301,42 @@ export default function CustomersPage() {
           </div>
         ))}
       </div>
+
+      {/* Google Connect Banner */}
+      {!googleConnected && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900">Import Customers from Google Contacts</h3>
+              <p className="text-sm text-blue-700 mt-1">Connect Google to import your contacts directly as customers.</p>
+            </div>
+            <button onClick={handleConnectGoogle}
+              className="flex-shrink-0 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors whitespace-nowrap">
+              Connect Google
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Google Connected Actions */}
+      {googleConnected && (
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-green-900">✓ Google account connected</p>
+            <p className="text-sm text-green-700 mt-0.5">Import contacts from Google to add them as customers</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleFetchContacts} disabled={isLoadingGoogle}
+              className="text-sm font-semibold text-green-700 bg-white border border-green-300 px-3 py-1.5 rounded-lg hover:bg-green-50 disabled:opacity-50 transition-colors">
+              {isLoadingGoogle ? 'Loading...' : '📇 Import Contacts'}
+            </button>
+            <button onClick={handleDisconnectGoogle}
+              className="text-sm font-semibold text-red-600 hover:text-red-700 px-3 py-1.5">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -260,6 +410,9 @@ export default function CustomersPage() {
           jobs={jobs.filter(j=>j.customer===selected.name).map(j=>({title:j.title,status:j.status,date:j.date,amount:j.amount}))}
           onEdit={()=>setModal('edit')}
           onClose={()=>{setModal('none');setSelected(null);}}/>
+      )}
+      {showImportModal && (
+        <ImportContactsModal contacts={googleContacts} onImport={handleImportContacts} onClose={() => setShowImportModal(false)}/>
       )}
     </div>
   );

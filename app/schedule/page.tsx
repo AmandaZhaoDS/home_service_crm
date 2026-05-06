@@ -175,6 +175,7 @@ export default function SchedulePage() {
   const [googleContacts, setGoogleContacts] = useState<GoogleContact[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+  const [calendarView, setCalendarView] = useState<'appointments' | 'full'>('appointments');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -252,6 +253,18 @@ export default function SchedulePage() {
       })
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [jobs, todayStr]);
+
+  const googleEventsByDate = useMemo(() => {
+    if (calendarView !== 'full') return {} as Record<string, GoogleEvent[]>;
+    const map: Record<string, GoogleEvent[]> = {};
+    for (const ev of googleEvents) {
+      if (!ev.start) continue;
+      const dateStr = ev.start.slice(0, 10);
+      if (!map[dateStr]) map[dateStr] = [];
+      map[dateStr].push(ev);
+    }
+    return map;
+  }, [googleEvents, calendarView]);
 
   const saveAppointment = async (f: ApptForm) => {
     if (!data || !user?.id) return;
@@ -419,6 +432,24 @@ export default function SchedulePage() {
         ))}
       </div>
 
+      {/* Calendar View Toggle */}
+      {googleConnected && (
+        <div className="flex items-center justify-end">
+          <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden bg-white text-sm font-medium">
+            <button
+              onClick={() => setCalendarView('appointments')}
+              className={`px-4 py-2 transition-colors ${calendarView === 'appointments' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              Appointments
+            </button>
+            <button
+              onClick={() => setCalendarView('full')}
+              className={`px-4 py-2 transition-colors ${calendarView === 'full' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              Full Google Calendar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Week Calendar */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -461,18 +492,35 @@ export default function SchedulePage() {
                   }`}>{day.getDate()}</div>
                 </div>
                 <div className="p-1 space-y-1">
-                  {dayJobs.slice(0, 3).map(job => {
-                    const col = STATUS_COLOR[job.status] ?? STATUS_COLOR.scheduled;
+                  {(() => {
+                    const gEvs = calendarView === 'full' ? (googleEventsByDate[dateStr] ?? []) : [];
+                    const jMax = calendarView === 'full' ? 2 : 3;
+                    const jShown = Math.min(dayJobs.length, jMax);
+                    const gShown = Math.min(gEvs.length, Math.max(0, 3 - jShown));
+                    const overflow = (dayJobs.length - jShown) + (gEvs.length - gShown);
                     return (
-                      <div key={job.id} className={`${col.bg} ${col.text} rounded-lg px-1.5 py-1 text-xs`}>
-                        <div className="font-semibold truncate leading-tight">{job.customer}</div>
-                        <div className="opacity-70 truncate">{job.time}</div>
-                      </div>
+                      <>
+                        {dayJobs.slice(0, jShown).map(job => {
+                          const col = STATUS_COLOR[job.status] ?? STATUS_COLOR.scheduled;
+                          return (
+                            <div key={job.id} className={`${col.bg} ${col.text} rounded-lg px-1.5 py-1 text-xs`}>
+                              <div className="font-semibold truncate leading-tight">{job.customer}</div>
+                              <div className="opacity-70 truncate">{job.time}</div>
+                            </div>
+                          );
+                        })}
+                        {gEvs.slice(0, gShown).map(ev => (
+                          <div key={ev.id} className="bg-purple-50 text-purple-700 rounded-lg px-1.5 py-1 text-xs">
+                            <div className="font-semibold truncate leading-tight">{ev.title}</div>
+                            <div className="opacity-70 truncate">
+                              {ev.start.includes('T') ? new Date(ev.start).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'All day'}
+                            </div>
+                          </div>
+                        ))}
+                        {overflow > 0 && <p className="text-xs text-gray-400 text-center py-0.5">+{overflow}</p>}
+                      </>
                     );
-                  })}
-                  {dayJobs.length > 3 && (
-                    <p className="text-xs text-gray-400 text-center py-0.5">+{dayJobs.length - 3}</p>
-                  )}
+                  })()}
                 </div>
               </div>
             );
