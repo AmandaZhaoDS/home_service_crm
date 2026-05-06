@@ -1,237 +1,265 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useAuth } from '../../components/AuthProvider';
+import { Customer } from '../../lib/fieldproStorage';
+import Modal from '../../components/Modal';
 
-interface Customer {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  totalJobs: number;
-  totalSpent: number;
-  lastService: string;
-}
+const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
+function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[Math.abs(h)]; }
+function initials(name: string) { return name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2); }
+function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
-export default function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>([
-    {
-      id: '1',
-      name: 'John Smith',
-      email: 'john.smith@email.com',
-      phone: '(555) 123-4567',
-      address: '123 Main St, Springfield, IL 62701',
-      totalJobs: 3,
-      totalSpent: 1450,
-      lastService: '2024-01-15',
-    },
-    {
-      id: '2',
-      name: 'Sarah Johnson',
-      email: 'sarah.j@email.com',
-      phone: '(555) 234-5678',
-      address: '456 Oak Ave, Springfield, IL 62702',
-      totalJobs: 1,
-      totalSpent: 1200,
-      lastService: '2024-01-16',
-    },
-    {
-      id: '3',
-      name: 'Mike Davis',
-      email: 'mike.davis@email.com',
-      phone: '(555) 345-6789',
-      address: '789 Pine Rd, Springfield, IL 62703',
-      totalJobs: 5,
-      totalSpent: 890,
-      lastService: '2024-01-14',
-    },
-    {
-      id: '4',
-      name: 'Lisa Brown',
-      email: 'lisa.brown@email.com',
-      phone: '(555) 456-7890',
-      address: '321 Elm St, Springfield, IL 62704',
-      totalJobs: 2,
-      totalSpent: 295,
-      lastService: '2024-01-13',
-    },
-    {
-      id: '5',
-      name: 'Tom Wilson',
-      email: 'tom.wilson@email.com',
-      phone: '(555) 567-8901',
-      address: '654 Maple Dr, Springfield, IL 62705',
-      totalJobs: 1,
-      totalSpent: 450,
-      lastService: '2024-01-12',
-    },
-    {
-      id: '6',
-      name: 'Emma Taylor',
-      email: 'emma.taylor@email.com',
-      phone: '(555) 678-9012',
-      address: '987 Cedar Ln, Springfield, IL 62706',
-      totalJobs: 4,
-      totalSpent: 2100,
-      lastService: '2024-01-11',
-    },
-  ]);
+const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
+const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+interface FormData { name:string; email:string; phone:string; address:string; }
+function blankForm(): FormData { return {name:'',email:'',phone:'',address:''}; }
+function custToForm(c: Customer): FormData { return {name:c.name,email:c.email,phone:c.phone,address:c.address}; }
 
-  const filteredCustomers = customers.filter(customer =>
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone.includes(searchTerm)
-  );
+// ─── Customer Form Modal ──────────────────────────────────────────────────────
+
+function CustomerFormModal({ initial, onSave, onClose }: {
+  initial?: Customer; onSave:(f:FormData)=>void; onClose:()=>void;
+}) {
+  const [f, setF] = useState<FormData>(initial ? custToForm(initial) : blankForm());
+  const set = <K extends keyof FormData>(k:K,v:string) => setF(p=>({...p,[k]:v}));
+  const valid = f.name.trim() && f.email.trim();
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+    <Modal title={initial ? 'Edit Customer' : 'Add Customer'} onClose={onClose} size="md">
+      <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Customer Management</h1>
-          <p className="text-gray-600 mt-1">Manage your customer database and service history</p>
+          <label className={LABEL_CLS}>Full Name *</label>
+          <input className={INPUT_CLS} value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Jane Smith"/>
         </div>
-        <button
-          onClick={() => setShowNewCustomerForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-        >
-          Add Customer
+        <div>
+          <label className={LABEL_CLS}>Email *</label>
+          <input type="email" className={INPUT_CLS} value={f.email} onChange={e=>set('email',e.target.value)} placeholder="jane@example.com"/>
+        </div>
+        <div>
+          <label className={LABEL_CLS}>Phone</label>
+          <input type="tel" className={INPUT_CLS} value={f.phone} onChange={e=>set('phone',e.target.value)} placeholder="(555) 123-4567"/>
+        </div>
+        <div>
+          <label className={LABEL_CLS}>Address</label>
+          <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)} placeholder="123 Main St, San Jose, CA"/>
+        </div>
+        <button onClick={()=>{ if(valid) onSave(f); }} disabled={!valid}
+          className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+          {initial ? 'Save Changes' : 'Add Customer'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Customer Detail Modal ────────────────────────────────────────────────────
+
+function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
+  customer: Customer;
+  jobs: { title:string; status:string; date:string; amount:number }[];
+  onEdit: ()=>void; onClose: ()=>void;
+}) {
+  const totalSpent = jobs.filter(j=>j.status==='paid').reduce((s,j)=>s+j.amount,0);
+
+  return (
+    <Modal title="Customer Details" onClose={onClose} size="md">
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <div className={`w-14 h-14 rounded-2xl ${avatarColor(customer.name)} flex items-center justify-center text-white text-xl font-bold flex-shrink-0`}>
+            {initials(customer.name)}
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">{customer.name}</h3>
+            <p className="text-sm text-gray-500">{customer.email}</p>
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label:'Phone', value:customer.phone||'—' },
+            { label:'Address', value:customer.address||'—' },
+            { label:'Total Jobs', value:jobs.length.toString() },
+            { label:'Total Paid', value:`$${totalSpent.toFixed(2)}` },
+          ].map(item=>(
+            <div key={item.label} className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-0.5">{item.label}</p>
+              <p className="text-sm font-semibold text-gray-900">{item.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Recent Jobs */}
+        {jobs.length>0 && (
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Job History</p>
+            <div className="space-y-2">
+              {jobs.slice(0,5).map((j,i)=>(
+                <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{j.title}</p>
+                    <p className="text-xs text-gray-500">{j.date}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-gray-900">${j.amount.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500 capitalize">{j.status.replace('-',' ')}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button onClick={onEdit} className="w-full border border-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+          Edit Customer
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function CustomersPage() {
+  const { data, updateData } = useAuth();
+  const customers = data?.customers ?? [];
+  const jobs = data?.jobs ?? [];
+
+  const [search, setSearch] = useState('');
+  const [modal, setModal] = useState<'none'|'create'|'edit'|'view'>('none');
+  const [selected, setSelected] = useState<Customer|null>(null);
+
+  const filtered = useMemo(()=>{
+    if (!search.trim()) return customers;
+    const q = search.toLowerCase();
+    return customers.filter(c=>c.name.toLowerCase().includes(q)||c.email.toLowerCase().includes(q)||c.phone.includes(q));
+  }, [customers, search]);
+
+  const saveCustomer = (f: FormData, existingId?: string) => {
+    if (!data) return;
+    if (existingId) {
+      updateData({...data, customers:data.customers.map(c=>c.id===existingId?{...c,...f}:c)});
+    } else {
+      const newCust: Customer = {
+        id:uid(), ...f,
+        totalJobs:0, totalSpent:0,
+        lastService:new Date().toISOString().split('T')[0],
+      };
+      updateData({...data, customers:[newCust,...data.customers]});
+    }
+    setModal('none'); setSelected(null);
+  };
+
+  const deleteCustomer = (id: string) => {
+    if (!data || !confirm('Delete this customer?')) return;
+    updateData({...data, customers:data.customers.filter(c=>c.id!==id)});
+    setModal('none'); setSelected(null);
+  };
+
+  const totalRevenue = customers.reduce((s,c)=>{
+    return s + jobs.filter(j=>j.customer===c.name&&j.status==='paid').reduce((a,j)=>a+j.amount,0);
+  },0);
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
+        <button onClick={()=>{setModal('create');setSelected(null);}}
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+          + Add Customer
         </button>
       </div>
 
-      {/* Search */}
-      <div className="bg-white rounded-lg shadow-sm border p-4">
-        <div className="flex items-center space-x-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search customers by name, email, or phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label:'Total Customers', value:customers.length, color:'bg-blue-600' },
+          { label:'Total Jobs', value:jobs.length, color:'bg-emerald-500' },
+          { label:'Total Revenue', value:`$${totalRevenue.toFixed(0)}`, color:'bg-indigo-600' },
+        ].map(stat=>(
+          <div key={stat.label} className={`${stat.color} rounded-2xl p-4 text-white`}>
+            <p className="text-sm opacity-80">{stat.label}</p>
+            <p className="text-3xl font-bold mt-1">{stat.value}</p>
           </div>
-          <div className="text-sm text-gray-600">
-            {filteredCustomers.length} of {customers.length} customers
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Customer Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-semibold text-gray-900">{customers.length}</p>
-            </div>
+      {/* Table */}
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" placeholder="Search by name, email, or phone..." value={search}
+              onChange={e=>setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-gray-50"/>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Jobs</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {customers.reduce((sum, customer) => sum + customer.totalJobs, 0)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-emerald-100 rounded-lg">
-              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                ${customers.reduce((sum, customer) => sum + customer.totalSpent, 0).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Customers Table */}
-      <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jobs</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Spent</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Service</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                {['Customer','Contact','Address','Jobs','Last Service','Actions'].map(h=>(
+                  <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
-                <tr key={customer.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10">
-                        <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                          <span className="text-sm font-medium text-gray-700">
-                            {customer.name.split(' ').map(n => n[0]).join('')}
-                          </span>
-                        </div>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map(c=>{
+                const custJobs = jobs.filter(j=>j.customer===c.name);
+                return (
+                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-full ${avatarColor(c.name)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>{initials(c.name)}</div>
+                        <p className="font-semibold text-gray-900">{c.name}</p>
                       </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="text-gray-700">{c.email}</p>
+                      <p className="text-xs text-gray-500">{c.phone}</p>
+                    </td>
+                    <td className="px-4 py-4 text-gray-600 max-w-[180px]">
+                      <span className="truncate block">{c.address||'—'}</span>
+                    </td>
+                    <td className="px-4 py-4 text-gray-700 font-medium">{custJobs.length}</td>
+                    <td className="px-4 py-4 text-gray-500">{c.lastService||'—'}</td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <button onClick={()=>{setSelected(c);setModal('view');}}
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">View</button>
+                        <button onClick={()=>{setSelected(c);setModal('edit');}}
+                          className="border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">Edit</button>
+                        <button onClick={()=>deleteCustomer(c.id)}
+                          className="border border-red-100 text-red-400 hover:bg-red-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">Delete</button>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{customer.email}</div>
-                    <div className="text-sm text-gray-500">{customer.phone}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900 max-w-xs truncate">{customer.address}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {customer.totalJobs}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${customer.totalSpent}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.lastService}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button className="text-blue-600 hover:text-blue-900 mr-4">View</button>
-                    <button className="text-gray-600 hover:text-gray-900">Edit</button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          {filtered.length===0 && <div className="text-center py-14 text-gray-400 text-sm">No customers found.</div>}
         </div>
       </div>
 
-      {filteredCustomers.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-gray-500 text-lg">No customers found matching your search.</p>
-        </div>
+      {/* Modals */}
+      {modal==='create' && (
+        <CustomerFormModal onSave={f=>saveCustomer(f)} onClose={()=>setModal('none')}/>
+      )}
+      {modal==='edit' && selected && (
+        <CustomerFormModal initial={selected} onSave={f=>saveCustomer(f,selected.id)} onClose={()=>setModal('none')}/>
+      )}
+      {modal==='view' && selected && (
+        <CustomerDetailModal
+          customer={selected}
+          jobs={jobs.filter(j=>j.customer===selected.name).map(j=>({title:j.title,status:j.status,date:j.date,amount:j.amount}))}
+          onEdit={()=>setModal('edit')}
+          onClose={()=>{setModal('none');setSelected(null);}}/>
       )}
     </div>
   );

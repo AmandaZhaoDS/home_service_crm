@@ -1,277 +1,282 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useAuth } from '../../components/AuthProvider';
+import { Job } from '../../lib/fieldproStorage';
+import Modal from '../../components/Modal';
 
-interface ScheduledJob {
-  id: string;
-  title: string;
-  customer: string;
-  date: string;
-  time: string;
-  status: 'scheduled' | 'on-site' | 'completed';
-  technician?: string;
-}
+function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
-export default function SchedulePage() {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<'month' | 'week' | 'day'>('week');
+const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
+const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
 
-  const scheduledJobs: ScheduledJob[] = [
-    {
-      id: '1',
-      title: 'Kitchen Plumbing Repair',
-      customer: 'John Smith',
-      date: '2024-01-15',
-      time: '09:00',
-      status: 'scheduled',
-      technician: 'Mike Johnson',
-    },
-    {
-      id: '2',
-      title: 'Bathroom Renovation',
-      customer: 'Sarah Johnson',
-      date: '2024-01-16',
-      time: '14:00',
-      status: 'scheduled',
-      technician: 'Alex Chen',
-    },
-    {
-      id: '3',
-      title: 'HVAC Maintenance',
-      customer: 'Mike Davis',
-      date: '2024-01-14',
-      time: '11:00',
-      status: 'on-site',
-      technician: 'Sarah Wilson',
-    },
-    {
-      id: '4',
-      title: 'Electrical Outlet Installation',
-      customer: 'Lisa Brown',
-      date: '2024-01-13',
-      time: '10:00',
-      status: 'completed',
-      technician: 'Tom Anderson',
-    },
-  ];
+const STATUS_COLOR: Record<string, { bg: string; text: string; dot: string }> = {
+  estimate:       { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-400' },
+  scheduled:      { bg: 'bg-blue-50',   text: 'text-blue-700',   dot: 'bg-blue-500' },
+  'on-site':      { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500' },
+  done:           { bg: 'bg-emerald-50',text: 'text-emerald-700',dot: 'bg-emerald-500' },
+  'invoice-sent': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+  paid:           { bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-500' },
+};
 
-  const getJobsForDate = (date: string) => {
-    return scheduledJobs.filter(job => job.date === date);
-  };
+const STATUS_LABEL: Record<string, string> = {
+  estimate: 'Estimate', scheduled: 'Scheduled', 'on-site': 'On Site',
+  done: 'Done', 'invoice-sent': 'Invoice Sent', paid: 'Paid',
+};
 
-  const getWeekDates = () => {
-    const startOfWeek = new Date(currentDate);
-    startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+// ─── New Appointment Modal ────────────────────────────────────────────────────
 
-    const dates = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + i);
-      dates.push(date);
-    }
-    return dates;
-  };
+interface ApptForm { title: string; customer: string; date: string; time: string; address: string; notes: string; }
 
-  const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
-
-  const formatDisplayDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  const weekDates = getWeekDates();
-
-  const timeSlots = [
-    '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'
-  ];
+function NewAppointmentModal({ customers, onSave, onClose }: {
+  customers: string[]; onSave: (f: ApptForm) => void; onClose: () => void;
+}) {
+  const [f, setF] = useState<ApptForm>({
+    title: '', customer: '', date: new Date().toISOString().split('T')[0],
+    time: '09:00 AM', address: '', notes: '',
+  });
+  const set = <K extends keyof ApptForm>(k: K, v: string) => setF(p => ({ ...p, [k]: v }));
+  const valid = f.title.trim() && f.customer.trim() && f.date;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+    <Modal title="New Appointment" onClose={onClose} size="md">
+      <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Schedule</h1>
-          <p className="text-gray-600 mt-1">Manage your service appointments and technician schedules</p>
+          <label className={LABEL_CLS}>Job Title *</label>
+          <input className={INPUT_CLS} value={f.title} onChange={e => set('title', e.target.value)} placeholder="e.g. HVAC Maintenance"/>
         </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setView('month')}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              view === 'month' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            Month
-          </button>
-          <button
-            onClick={() => setView('week')}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              view === 'week' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            Week
-          </button>
-          <button
-            onClick={() => setView('day')}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              view === 'day' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            Day
-          </button>
+        <div>
+          <label className={LABEL_CLS}>Customer *</label>
+          <input className={INPUT_CLS} list="cust-sched" value={f.customer} onChange={e => set('customer', e.target.value)} placeholder="Customer name"/>
+          <datalist id="cust-sched">{customers.map(c => <option key={c} value={c}/>)}</datalist>
         </div>
-      </div>
-
-      {/* Navigation */}
-      <div className="bg-white rounded-lg shadow-sm border p-4">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => {
-              const newDate = new Date(currentDate);
-              if (view === 'week') {
-                newDate.setDate(currentDate.getDate() - 7);
-              } else if (view === 'month') {
-                newDate.setMonth(currentDate.getMonth() - 1);
-              } else {
-                newDate.setDate(currentDate.getDate() - 1);
-              }
-              setCurrentDate(newDate);
-            }}
-            className="p-2 hover:bg-gray-100 rounded-md"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-
-          <h2 className="text-lg font-semibold text-gray-900">
-            {view === 'week' &&
-              `${formatDisplayDate(weekDates[0])} - ${formatDisplayDate(weekDates[6])}`
-            }
-            {view === 'month' &&
-              currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-            }
-            {view === 'day' &&
-              formatDisplayDate(currentDate)
-            }
-          </h2>
-
-          <button
-            onClick={() => {
-              const newDate = new Date(currentDate);
-              if (view === 'week') {
-                newDate.setDate(currentDate.getDate() + 7);
-              } else if (view === 'month') {
-                newDate.setMonth(currentDate.getMonth() + 1);
-              } else {
-                newDate.setDate(currentDate.getDate() + 1);
-              }
-              setCurrentDate(newDate);
-            }}
-            className="p-2 hover:bg-gray-100 rounded-md"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Week View */}
-      {view === 'week' && (
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div className="grid grid-cols-8 border-b">
-            <div className="p-4 border-r bg-gray-50">
-              <span className="text-sm font-medium text-gray-500">Time</span>
-            </div>
-            {weekDates.map((date, index) => (
-              <div key={index} className="p-4 border-r bg-gray-50 text-center">
-                <div className="text-sm font-medium text-gray-900">
-                  {formatDisplayDate(date)}
-                </div>
-              </div>
-            ))}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={LABEL_CLS}>Date *</label>
+            <input type="date" className={INPUT_CLS} value={f.date} onChange={e => set('date', e.target.value)}/>
           </div>
-
-          {timeSlots.map((time) => (
-            <div key={time} className="grid grid-cols-8 border-b">
-              <div className="p-4 border-r bg-gray-50">
-                <span className="text-sm text-gray-500">{time}</span>
-              </div>
-              {weekDates.map((date, index) => {
-                const dateStr = formatDate(date);
-                const jobsAtTime = scheduledJobs.filter(job =>
-                  job.date === dateStr && job.time === time
-                );
-
-                return (
-                  <div key={index} className="p-2 border-r min-h-[60px] relative">
-                    {jobsAtTime.map((job) => (
-                      <div
-                        key={job.id}
-                        className={`p-2 rounded-md text-xs mb-1 ${
-                          job.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                          job.status === 'on-site' ? 'bg-orange-100 text-orange-800' :
-                          'bg-green-100 text-green-800'
-                        }`}
-                      >
-                        <div className="font-medium truncate">{job.title}</div>
-                        <div className="text-xs opacity-75">{job.customer}</div>
-                        {job.technician && (
-                          <div className="text-xs opacity-75">{job.technician}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          <div>
+            <label className={LABEL_CLS}>Time</label>
+            <input className={INPUT_CLS} value={f.time} onChange={e => set('time', e.target.value)} placeholder="09:00 AM"/>
+          </div>
         </div>
-      )}
+        <div>
+          <label className={LABEL_CLS}>Address</label>
+          <input className={INPUT_CLS} value={f.address} onChange={e => set('address', e.target.value)} placeholder="123 Main St, San Jose, CA"/>
+        </div>
+        <div>
+          <label className={LABEL_CLS}>Notes</label>
+          <textarea className={INPUT_CLS + ' resize-none'} rows={3} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="Appointment notes..."/>
+        </div>
+        <button
+          onClick={() => { if (valid) onSave(f); }}
+          disabled={!valid}
+          className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+          Schedule Appointment
+        </button>
+      </div>
+    </Modal>
+  );
+}
 
-      {/* Today's Schedule Summary */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Today's Schedule</h3>
-        <div className="space-y-3">
-          {getJobsForDate(formatDate(new Date())).map((job) => (
-            <div key={job.id} className="flex items-center justify-between p-4 border rounded-lg">
-              <div className="flex items-center space-x-4">
-                <div className={`w-3 h-3 rounded-full ${
-                  job.status === 'scheduled' ? 'bg-blue-500' :
-                  job.status === 'on-site' ? 'bg-orange-500' :
-                  'bg-green-500'
-                }`}></div>
-                <div>
-                  <h4 className="font-medium text-gray-900">{job.title}</h4>
-                  <p className="text-sm text-gray-600">{job.customer}</p>
-                  {job.technician && (
-                    <p className="text-xs text-gray-500">Technician: {job.technician}</p>
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function SchedulePage() {
+  const { data, updateData } = useAuth();
+  const jobs = data?.jobs ?? [];
+  const customerNames = [...new Set((data?.customers ?? []).map(c => c.name))];
+
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [showModal, setShowModal] = useState(false);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const weekStart = useMemo(() => {
+    const d = new Date(todayStr + 'T00:00:00');
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff + weekOffset * 7);
+    return d;
+  }, [weekOffset, todayStr]);
+
+  const weekDays = useMemo(() =>
+    Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      return d;
+    }), [weekStart]);
+
+  const jobsByDate = useMemo(() => {
+    const map: Record<string, Job[]> = {};
+    for (const job of jobs) {
+      if (!map[job.date]) map[job.date] = [];
+      map[job.date].push(job);
+    }
+    return map;
+  }, [jobs]);
+
+  const upcomingJobs = useMemo(() => {
+    const from = new Date(todayStr + 'T00:00:00');
+    const to = new Date(from);
+    to.setDate(to.getDate() + 30);
+    return jobs
+      .filter(j => {
+        const d = new Date(j.date + 'T00:00:00');
+        return d >= from && d <= to && (j.status === 'scheduled' || j.status === 'on-site' || j.status === 'estimate');
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [jobs, todayStr]);
+
+  const saveAppointment = (f: ApptForm) => {
+    if (!data) return;
+    const newJob: Job = {
+      id: uid(), title: f.title, customer: f.customer, status: 'scheduled',
+      date: f.date, time: f.time, address: f.address, technician: '',
+      estimate: 0, amount: 0, notes: f.notes, items: [], photos: [],
+    };
+    updateData({ ...data, jobs: [newJob, ...data.jobs] });
+    setShowModal(false);
+  };
+
+  const fmt = (d: Date) => d.toISOString().split('T')[0];
+  const isToday = (d: Date) => fmt(d) === todayStr;
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Schedule</h1>
+        <button onClick={() => setShowModal(true)}
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+          + New Appointment
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: 'Scheduled', value: jobs.filter(j => j.status === 'scheduled').length, color: 'bg-blue-600' },
+          { label: 'On Site',   value: jobs.filter(j => j.status === 'on-site').length,   color: 'bg-orange-500' },
+          { label: 'Estimates', value: jobs.filter(j => j.status === 'estimate').length,  color: 'bg-indigo-600' },
+          { label: 'Completed', value: jobs.filter(j => j.status === 'done' || j.status === 'paid').length, color: 'bg-emerald-500' },
+        ].map(stat => (
+          <div key={stat.label} className={`${stat.color} rounded-2xl p-4 text-white`}>
+            <p className="text-sm opacity-80">{stat.label}</p>
+            <p className="text-3xl font-bold mt-1">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Week Calendar */}
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <button onClick={() => setWeekOffset(w => w - 1)}
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+          </button>
+          <div className="text-center">
+            <p className="font-semibold text-gray-900">
+              {weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {weekDays[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} –{' '}
+              {weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </p>
+          </div>
+          <button onClick={() => setWeekOffset(w => w + 1)}
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-7 divide-x divide-gray-100">
+          {weekDays.map((day, idx) => {
+            const dateStr = fmt(day);
+            const dayJobs = jobsByDate[dateStr] ?? [];
+            const current = isToday(day);
+            return (
+              <div key={idx} className="min-h-[120px]">
+                <div className={`px-1 py-3 text-center border-b border-gray-100 ${current ? 'bg-blue-50' : ''}`}>
+                  <p className={`text-xs font-medium ${current ? 'text-blue-600' : 'text-gray-400'}`}>
+                    {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                  </p>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center mx-auto mt-1 text-sm font-bold ${
+                    current ? 'bg-blue-600 text-white' : 'text-gray-900'
+                  }`}>{day.getDate()}</div>
+                </div>
+                <div className="p-1 space-y-1">
+                  {dayJobs.slice(0, 3).map(job => {
+                    const col = STATUS_COLOR[job.status] ?? STATUS_COLOR.scheduled;
+                    return (
+                      <div key={job.id} className={`${col.bg} ${col.text} rounded-lg px-1.5 py-1 text-xs`}>
+                        <div className="font-semibold truncate leading-tight">{job.customer}</div>
+                        <div className="opacity-70 truncate">{job.time}</div>
+                      </div>
+                    );
+                  })}
+                  {dayJobs.length > 3 && (
+                    <p className="text-xs text-gray-400 text-center py-0.5">+{dayJobs.length - 3}</p>
                   )}
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm font-medium text-gray-900">{job.time}</div>
-                <div className={`text-xs px-2 py-1 rounded-full ${
-                  job.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                  job.status === 'on-site' ? 'bg-orange-100 text-orange-800' :
-                  'bg-green-100 text-green-800'
-                }`}>
-                  {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {getJobsForDate(formatDate(new Date())).length === 0 && (
-            <p className="text-gray-500 text-center py-8">No jobs scheduled for today</p>
-          )}
+            );
+          })}
         </div>
       </div>
+
+      {/* Upcoming Appointments */}
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">Upcoming Appointments</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Scheduled &amp; on-site jobs — next 30 days</p>
+        </div>
+        {upcomingJobs.length === 0 ? (
+          <div className="text-center py-14 text-gray-400 text-sm">No upcoming appointments.</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {upcomingJobs.map(job => {
+              const col = STATUS_COLOR[job.status] ?? STATUS_COLOR.scheduled;
+              const d = new Date(job.date + 'T00:00:00');
+              return (
+                <div key={job.id} className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className="text-center min-w-[44px]">
+                      <p className="text-xs text-gray-400 uppercase">
+                        {d.toLocaleDateString('en-US', { month: 'short' })}
+                      </p>
+                      <p className="text-xl font-bold text-gray-900 leading-tight">{d.getDate()}</p>
+                    </div>
+                    <div className={`w-0.5 h-10 rounded-full flex-shrink-0 ${col.dot}`}/>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">{job.customer}</p>
+                      <p className="text-xs text-gray-500 truncate">{job.title}</p>
+                      <p className="text-xs text-gray-400">
+                        {job.time}{job.address ? ` · ${job.address.split(',')[0]}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-4">
+                    <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${col.bg} ${col.text}`}>
+                      {STATUS_LABEL[job.status] ?? job.status}
+                    </span>
+                    {job.amount > 0 && (
+                      <p className="text-sm font-semibold text-gray-900 mt-1">${job.amount.toFixed(2)}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showModal && (
+        <NewAppointmentModal customers={customerNames} onSave={saveAppointment} onClose={() => setShowModal(false)}/>
+      )}
     </div>
   );
 }
