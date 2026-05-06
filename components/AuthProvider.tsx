@@ -38,38 +38,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Restore session on mount
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (session) {
-          const record = await fetchUserRecord(session.user.id, session.user.email!);
-          setUser(record.user);
-          setData(record.data);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    // INITIAL_SESSION fires on the next tick (much faster than a getSession() roundtrip).
+    // We use it as the primary signal to resolve the loading state.
+    // getSession() is kept as a fallback in case INITIAL_SESSION never fires.
+    let initialSessionFired = false;
 
-    // Keep session in sync (tab focus, token refresh, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setData(null);
+        // Ensure loading is cleared even if it fires before INITIAL_SESSION
+        if (!initialSessionFired) { initialSessionFired = true; setLoading(false); }
         return;
       }
-      // Ignore events with no session (e.g. INITIAL_SESSION on unauthenticated mount)
-      // to avoid wiping state set by register()
+
+      if (event === 'INITIAL_SESSION') {
+        initialSessionFired = true;
+        if (session) {
+          try {
+            const record = await fetchUserRecord(session.user.id, session.user.email!);
+            setUser(record.user);
+            setData(record.data);
+          } catch { /* keep null; loading will still clear */ }
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Don't clear state on events with no session (avoids wiping register() manual setUser)
       if (!session) return;
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
           const record = await fetchUserRecord(session.user.id, session.user.email!);
           setUser(record.user);
           setData(record.data);
-        } catch {
-          // fetchUserRecord failed; keep existing state
-        }
+        } catch { /* keep existing state */ }
       }
     });
+
+    // Fallback: if onAuthStateChange never fires INITIAL_SESSION, getSession() resolves loading
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (initialSessionFired) return;
+        if (session) {
+          try {
+            const record = await fetchUserRecord(session.user.id, session.user.email!);
+            setUser(record.user);
+            setData(record.data);
+          } catch { /* keep null */ }
+        }
+        setLoading(false);
+      })
+      .catch(() => { if (!initialSessionFired) setLoading(false); });
 
     return () => subscription.unsubscribe();
   }, []);
