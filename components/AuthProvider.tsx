@@ -43,6 +43,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // getSession() is kept as a fallback in case INITIAL_SESSION never fires.
     let initialSessionFired = false;
 
+    // Safety net: if Supabase hangs on a token refresh (e.g. expired token + slow network),
+    // neither INITIAL_SESSION nor getSession() will resolve. Force-clear loading after 8 s
+    // so the user is never permanently stuck on the loading screen.
+    const loadingTimeout = setTimeout(() => {
+      if (!initialSessionFired) {
+        initialSessionFired = true;
+        setLoading(false);
+      }
+    }, 8000);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -109,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(() => { if (!initialSessionFired) setLoading(false); });
 
-    return () => subscription.unsubscribe();
+    return () => { subscription.unsubscribe(); clearTimeout(loadingTimeout); };
   }, []);
 
   const login = async (email: string, password: string) => {

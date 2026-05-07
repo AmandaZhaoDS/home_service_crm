@@ -56,7 +56,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { lang, setLang, t } = useLanguage();
   const [langOpen, setLangOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const upcomingReminders = useMemo(() => {
     if (!data?.reminders) return 0;
@@ -92,6 +94,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [langOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) setUserMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [userMenuOpen]);
 
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false); }, [pathname]);
@@ -199,15 +210,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              {/* User */}
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-gray-900 leading-tight">{t('nav.hi')}, {firstName}</p>
-                <button onClick={logout} className="text-xs text-gray-500 hover:text-gray-700 transition-colors">
-                  {t('nav.role')} ▾
+              {/* User menu */}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setUserMenuOpen(o => !o)}
+                  className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold select-none hover:bg-blue-700 transition-colors"
+                  aria-label="User menu"
+                >
+                  {initials}
                 </button>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold select-none cursor-pointer">
-                {initials}
+                {userMenuOpen && (
+                  <div className="absolute right-0 top-12 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-[60] min-w-[200px]">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="text-sm font-semibold text-gray-900 leading-tight">{user?.name ?? firstName}</p>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
+                    </div>
+                    <button
+                      onClick={() => { logout(); setUserMenuOpen(false); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                      </svg>
+                      Logout
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -28,8 +28,11 @@ export default function AuthBoundary({ children }: { children: React.ReactNode }
 
   if (loading && !user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-10 gap-3">
         <div className="text-sm text-slate-500">Loading your dashboard...</div>
+        <a href="/login" className="text-xs text-blue-500 hover:text-blue-700 hover:underline transition-colors">
+          Return to login
+        </a>
       </div>
     );
   }
