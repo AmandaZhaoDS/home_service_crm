@@ -104,7 +104,7 @@ en: {
   'voice.result':'Voice Result','voice.noSupport':'Voice not supported in this browser',
   'voice.customers':'Matching Customers','voice.jobs':'Matching Jobs','voice.note':'Note Added',
   'voice.hint':'Try: "Find customer Jane" or "Search HVAC jobs"',
-  'voice.close':'Close','voice.clear':'Clear',
+  'voice.close':'Close','voice.clear':'Clear','voice.noJobFound':'No matching job found','voice.lang':'Voice:',
 },
 zh: {
   'nav.dashboard':'仪表盘','nav.jobs':'工单','nav.customers':'客户','nav.schedule':'日程','nav.invoices':'发票',
@@ -189,7 +189,7 @@ zh: {
   'voice.result':'语音结果','voice.noSupport':'此浏览器不支持语音',
   'voice.customers':'匹配的客户','voice.jobs':'匹配的工单','voice.note':'备注已添加',
   'voice.hint':'试试说: "查找客户 张三" 或 "搜索暖通工单"',
-  'voice.close':'关闭','voice.clear':'清除',
+  'voice.close':'关闭','voice.clear':'清除','voice.noJobFound':'未找到匹配工单','voice.lang':'语音:',
 },
 es: {
   'nav.dashboard':'Panel','nav.jobs':'Trabajos','nav.customers':'Clientes','nav.schedule':'Agenda','nav.invoices':'Facturas',
@@ -274,7 +274,7 @@ es: {
   'voice.result':'Resultado de voz','voice.noSupport':'Voz no compatible en este navegador',
   'voice.customers':'Clientes encontrados','voice.jobs':'Trabajos encontrados','voice.note':'Nota agregada',
   'voice.hint':'Prueba: "Buscar cliente Juan" o "Buscar trabajos HVAC"',
-  'voice.close':'Cerrar','voice.clear':'Limpiar',
+  'voice.close':'Cerrar','voice.clear':'Limpiar','voice.noJobFound':'No se encontró trabajo','voice.lang':'Voz:',
 },
 fr: {
   'nav.dashboard':'Tableau de bord','nav.jobs':'Missions','nav.customers':'Clients','nav.schedule':'Agenda','nav.invoices':'Factures',
@@ -359,7 +359,7 @@ fr: {
   'voice.result':'Résultat vocal','voice.noSupport':'Voix non supportée dans ce navigateur',
   'voice.customers':'Clients trouvés','voice.jobs':'Missions trouvées','voice.note':'Note ajoutée',
   'voice.hint':'Essayez : "Trouver client Marie" ou "Chercher missions plomberie"',
-  'voice.close':'Fermer','voice.clear':'Effacer',
+  'voice.close':'Fermer','voice.clear':'Effacer','voice.noJobFound':'Aucune mission trouvée','voice.lang':'Voix:',
 },
 de: {
   'nav.dashboard':'Dashboard','nav.jobs':'Aufträge','nav.customers':'Kunden','nav.schedule':'Termine','nav.invoices':'Rechnungen',
@@ -444,7 +444,7 @@ de: {
   'voice.result':'Sprachergebnis','voice.noSupport':'Sprache in diesem Browser nicht unterstützt',
   'voice.customers':'Gefundene Kunden','voice.jobs':'Gefundene Aufträge','voice.note':'Notiz hinzugefügt',
   'voice.hint':'Versuchen: "Kunde Hans suchen" oder "Aufträge Heizung suchen"',
-  'voice.close':'Schließen','voice.clear':'Löschen',
+  'voice.close':'Schließen','voice.clear':'Löschen','voice.noJobFound':'Kein Auftrag gefunden','voice.lang':'Sprache:',
 },
 ja: {
   'nav.dashboard':'ダッシュボード','nav.jobs':'作業','nav.customers':'顧客','nav.schedule':'スケジュール','nav.invoices':'請求書',
@@ -529,7 +529,7 @@ ja: {
   'voice.result':'音声結果','voice.noSupport':'このブラウザは音声未対応',
   'voice.customers':'マッチした顧客','voice.jobs':'マッチした作業','voice.note':'メモを追加',
   'voice.hint':'試してみて: "顧客 田中 検索" または "設備作業を探す"',
-  'voice.close':'閉じる','voice.clear':'クリア',
+  'voice.close':'閉じる','voice.clear':'クリア','voice.noJobFound':'作業が見つかりません','voice.lang':'音声:',
 },
 ko: {
   'nav.dashboard':'대시보드','nav.jobs':'작업','nav.customers':'고객','nav.schedule':'일정','nav.invoices':'청구서',
@@ -614,7 +614,7 @@ ko: {
   'voice.result':'음성 결과','voice.noSupport':'이 브라우저에서는 음성이 지원되지 않습니다',
   'voice.customers':'일치하는 고객','voice.jobs':'일치하는 작업','voice.note':'메모 추가됨',
   'voice.hint':'시도해 보세요: "고객 김철수 찾기" 또는 "HVAC 작업 검색"',
-  'voice.close':'닫기','voice.clear':'지우기',
+  'voice.close':'닫기','voice.clear':'지우기','voice.noJobFound':'일치하는 작업 없음','voice.lang':'음성:',
 },
 pt: {
   'nav.dashboard':'Painel','nav.jobs':'Trabalhos','nav.customers':'Clientes','nav.schedule':'Agenda','nav.invoices':'Faturas',
@@ -699,7 +699,7 @@ pt: {
   'voice.result':'Resultado de voz','voice.noSupport':'Voz não suportada neste navegador',
   'voice.customers':'Clientes encontrados','voice.jobs':'Trabalhos encontrados','voice.note':'Nota adicionada',
   'voice.hint':'Tente: "Buscar cliente João" ou "Procurar trabalhos encanamento"',
-  'voice.close':'Fechar','voice.clear':'Limpar',
+  'voice.close':'Fechar','voice.clear':'Limpar','voice.noJobFound':'Nenhum trabalho encontrado','voice.lang':'Voz:',
 },
 ar: {
   'nav.dashboard':'لوحة التحكم','nav.jobs':'المهام','nav.customers':'العملاء','nav.schedule':'الجدول','nav.invoices':'الفواتير',
@@ -784,7 +784,7 @@ ar: {
   'voice.result':'نتيجة الصوت','voice.noSupport':'الصوت غير مدعوم في هذا المتصفح',
   'voice.customers':'العملاء المطابقون','voice.jobs':'المهام المطابقة','voice.note':'تمت إضافة ملاحظة',
   'voice.hint':'جرب: "ابحث عن عميل محمد" أو "ابحث عن مهام تكييف"',
-  'voice.close':'إغلاق','voice.clear':'مسح',
+  'voice.close':'إغلاق','voice.clear':'مسح','voice.noJobFound':'لم يتم العثور على مهمة','voice.lang':'صوت:',
 },
 it: {
   'nav.dashboard':'Dashboard','nav.jobs':'Lavori','nav.customers':'Clienti','nav.schedule':'Agenda','nav.invoices':'Fatture',
@@ -869,7 +869,7 @@ it: {
   'voice.result':'Risultato vocale','voice.noSupport':'Voce non supportata in questo browser',
   'voice.customers':'Clienti trovati','voice.jobs':'Lavori trovati','voice.note':'Nota aggiunta',
   'voice.hint':'Prova: "Trova cliente Mario" o "Cerca lavori idraulica"',
-  'voice.close':'Chiudi','voice.clear':'Cancella',
+  'voice.close':'Chiudi','voice.clear':'Cancella','voice.noJobFound':'Nessun lavoro trovato','voice.lang':'Voce:',
 },
 } as const;
 
@@ -888,11 +888,12 @@ const LangContext = createContext<LangContextValue>({
 });
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    if (typeof window === 'undefined') return 'en';
+  const [lang, setLangState] = useState<Lang>('en');
+
+  useEffect(() => {
     const saved = localStorage.getItem('fpLang') as Lang | null;
-    return (saved && T[saved]) ? saved : 'en';
-  });
+    if (saved && T[saved]) setLangState(saved);
+  }, []);
 
   const setLang = (l: Lang) => {
     setLangState(l);

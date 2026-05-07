@@ -90,13 +90,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then(async ({ data: { session } }) => {
         if (initialSessionFired) return;
         if (session) {
+          // Resolve loading immediately with placeholder (same as INITIAL_SESSION path)
+          // so navigation from voice assistant doesn't show loading screen
+          setUser(prev => prev ?? {
+            id: session.user.id,
+            name: session.user.email!.split('@')[0],
+            email: session.user.email!,
+          });
+          setLoading(false);
           try {
             const record = await fetchUserRecord(session.user.id, session.user.email!);
             setUser(record.user);
             setData(record.data);
           } catch { /* keep null */ }
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
       })
       .catch(() => { if (!initialSessionFired) setLoading(false); });
 

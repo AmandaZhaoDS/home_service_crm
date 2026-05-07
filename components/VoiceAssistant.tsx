@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLanguage, SPEECH_LANG } from '../lib/i18n';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useLanguage, SPEECH_LANG, LANGUAGES } from '../lib/i18n';
 import { useAuth } from './AuthProvider';
 import { usePathname } from 'next/navigation';
 
@@ -47,7 +49,26 @@ export default function VoiceAssistant() {
   const { t, lang } = useLanguage();
   const { data, updateData } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const isDashboard = pathname === '/';
+
+  // voiceLang is independent from UI lang — stored in localStorage so users can speak
+  // in a different language than the UI without changing the whole interface
+  const [voiceLang, setVoiceLangState] = useState<typeof lang>(lang);
+  const [showLangPicker, setShowLangPicker] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('fpVoiceLang') as typeof lang | null;
+    setVoiceLangState(saved && SPEECH_LANG[saved] ? saved : lang);
+  }, []); // eslint-disable-line
+
+  const setVoiceLang = (l: typeof lang) => {
+    setVoiceLangState(l);
+    localStorage.setItem('fpVoiceLang', l);
+    setShowLangPicker(false);
+  };
+
+  const currentVoiceLangLabel = LANGUAGES.find(l => l.code === voiceLang)?.label ?? 'EN';
 
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
@@ -55,7 +76,6 @@ export default function VoiceAssistant() {
   const [transcript, setTranscript] = useState('');
   const [result, setResult] = useState<VoiceResult | null>(null);
   const [supported, setSupported] = useState(true);
-  const [pulse, setPulse] = useState(false);
 
   const recogRef = useRef<ISpeechRecognition | null>(null);
   const pulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -70,7 +90,7 @@ export default function VoiceAssistant() {
     if (!result) return;
 
     if (result.type === 'navigate' && result.path) {
-      window.location.href = result.path;
+      router.push(result.path);
       return;
     }
 
@@ -79,7 +99,7 @@ export default function VoiceAssistant() {
         window.dispatchEvent(new CustomEvent('voice:open-customer', { detail: { customerId: result.customerId } }));
       } else {
         sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_customer', customerId: result.customerId }));
-        window.location.href = '/customers';
+        router.push('/customers');
       }
       return;
     }
@@ -89,7 +109,7 @@ export default function VoiceAssistant() {
         window.dispatchEvent(new CustomEvent('voice:open-job', { detail: { jobId: result.jobId } }));
       } else {
         sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_job', jobId: result.jobId }));
-        window.location.href = '/jobs';
+        router.push('/jobs');
       }
       return;
     }
@@ -104,7 +124,6 @@ export default function VoiceAssistant() {
           return;
         }
       }
-      // No job matched — show the note text for manual use
       setResult(prev => prev ? { ...prev, type: 'note', noteAdded: result.note } : null);
     }
   }, [result?.type, result?.customerId, result?.jobId, result?.path]); // eslint-disable-line
@@ -114,14 +133,13 @@ export default function VoiceAssistant() {
     recogRef.current = null;
     setListening(false);
     if (pulseRef.current) clearInterval(pulseRef.current);
-    setPulse(false);
   }, []);
 
   const startListening = useCallback(() => {
     const SR: ISpeechRecognitionConstructor | undefined = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const recog: ISpeechRecognition = new SR();
-    recog.lang = SPEECH_LANG[lang];
+    recog.lang = SPEECH_LANG[voiceLang];
     recog.interimResults = true;
     recog.maxAlternatives = 1;
     recogRef.current = recog;
@@ -130,14 +148,13 @@ export default function VoiceAssistant() {
       setListening(true);
       setTranscript('');
       setResult(null);
-      pulseRef.current = setInterval(() => setPulse(p => !p), 600);
+      pulseRef.current = setInterval(() => {}, 600);
     };
 
     recog.onresult = (e: ISpeechRecognitionEvent) => {
       const parts: string[] = [];
       for (let i = 0; i < e.results.length; i++) parts.push(e.results[i][0].transcript);
-      const text = parts.join('');
-      setTranscript(text);
+      setTranscript(parts.join(''));
     };
 
     recog.onerror = () => stopListening();
@@ -149,7 +166,7 @@ export default function VoiceAssistant() {
     };
 
     recog.start();
-  }, [lang, stopListening, transcript]);
+  }, [voiceLang, stopListening, transcript]);
 
   const processVoice = useCallback(async (text: string) => {
     setProcessing(true);
@@ -159,7 +176,7 @@ export default function VoiceAssistant() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript: text,
-          lang,
+          lang: voiceLang,
           page: pathname,
           customers: (data?.customers ?? []).map(c => ({ id: c.id, name: c.name, email: c.email, phone: c.phone })),
           jobs: (data?.jobs ?? []).map(j => ({ id: j.id, title: j.title, customer: j.customer, status: j.status, date: j.date, amount: j.amount, notes: j.notes })),
@@ -171,7 +188,7 @@ export default function VoiceAssistant() {
       setResult({ type: 'error', message: 'Failed to process voice command.' });
     }
     setProcessing(false);
-  }, [data, lang, pathname]);
+  }, [data, voiceLang, pathname]);
 
   const handleToggle = () => {
     if (!open) { setOpen(true); return; }
@@ -191,13 +208,6 @@ export default function VoiceAssistant() {
 
   if (!supported && !open) return null;
 
-  const actionIcon = (type: VoiceResult['type']) => {
-    if (type === 'open_customer' || type === 'open_job') return '→';
-    if (type === 'navigate') return '↗';
-    if (type === 'note_saved') return '✓';
-    return null;
-  };
-
   return (
     <>
       <span id="vox-transcript" className="hidden" data-text=""/>
@@ -212,15 +222,49 @@ export default function VoiceAssistant() {
                 <div className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center">
                   <MicIcon className="w-4 h-4 text-white"/>
                 </div>
-                <span className="text-white font-semibold text-sm">{t('voice.title')}</span>
+                <div>
+                  <span className="text-white font-semibold text-sm">{t('voice.title')}</span>
+                  {/* Clickable language label — changes voice recognition language independently from UI */}
+                  <button
+                    onClick={() => setShowLangPicker(p => !p)}
+                    className="flex items-center gap-1 text-white/70 hover:text-white text-xs leading-none mt-0.5 transition-colors"
+                  >
+                    {t('voice.lang')} <span className="underline underline-offset-2">{currentVoiceLangLabel}</span>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <button onClick={() => { setOpen(false); stopListening(); setResult(null); setTranscript(''); }}
+              <button onClick={() => { setOpen(false); stopListening(); setResult(null); setTranscript(''); setShowLangPicker(false); }}
                 className="text-white/70 hover:text-white transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
               </button>
             </div>
+
+            {/* Language picker — appears between header and body so it's not clipped by overflow-hidden */}
+            {showLangPicker && (
+              <div className="bg-gray-50 border-b border-gray-100 px-4 py-3">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('voice.lang')}</p>
+                <div className="grid grid-cols-5 gap-1">
+                  {LANGUAGES.map(l => (
+                    <button
+                      key={l.code}
+                      onClick={() => setVoiceLang(l.code)}
+                      className={`text-xs py-1.5 px-1 rounded-lg font-medium transition-colors ${
+                        voiceLang === l.code
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                      }`}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="p-4 space-y-3">
               {/* Mic button */}
@@ -273,7 +317,7 @@ export default function VoiceAssistant() {
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('voice.customers')}</p>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {result.customers.map(c => (
-                          <a key={c.id} href="/customers"
+                          <Link key={c.id} href="/customers"
                             className="flex items-center gap-2.5 p-2.5 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors">
                             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                               {c.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
@@ -282,7 +326,7 @@ export default function VoiceAssistant() {
                               <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
                               {c.phone && <p className="text-xs text-gray-500 truncate">{c.phone}</p>}
                             </div>
-                          </a>
+                          </Link>
                         ))}
                       </div>
                     </div>
@@ -294,32 +338,24 @@ export default function VoiceAssistant() {
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('voice.jobs')}</p>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {result.jobs.map(j => (
-                          <a key={j.id} href="/jobs"
+                          <Link key={j.id} href="/jobs"
                             className="block p-2.5 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors">
                             <div className="flex items-center justify-between">
                               <p className="text-sm font-semibold text-gray-900 truncate">{j.title}</p>
                               <span className="text-xs text-indigo-600 font-medium ml-2 flex-shrink-0">${j.amount}</span>
                             </div>
                             <p className="text-xs text-gray-500 truncate">{j.customer}</p>
-                          </a>
+                          </Link>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Open customer / open job — action confirmation */}
+                  {/* Open customer / open job / navigate — action confirmation */}
                   {(result.type === 'open_customer' || result.type === 'open_job' || result.type === 'navigate') && (
                     <div className="bg-blue-50 rounded-xl p-3 flex items-center gap-2">
-                      <span className="text-blue-600 text-base font-bold">{actionIcon(result.type)}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-blue-800">{result.message}</p>
-                        {result.type === 'open_customer' && result.customerName && (
-                          <p className="text-xs text-blue-600 mt-0.5">{result.customerName}</p>
-                        )}
-                        {result.type === 'open_job' && result.jobTitle && (
-                          <p className="text-xs text-blue-600 mt-0.5">{result.jobTitle}</p>
-                        )}
-                      </div>
+                      <span className="text-blue-600 text-base font-bold">→</span>
+                      <p className="text-sm font-semibold text-blue-800">{result.message}</p>
                     </div>
                   )}
 
@@ -328,20 +364,17 @@ export default function VoiceAssistant() {
                     <div className="bg-green-50 rounded-xl p-3 flex items-start gap-2">
                       <span className="text-green-600 text-sm">✓</span>
                       <div>
-                        <p className="text-sm font-semibold text-green-800">
-                          {result.type === 'note_saved' && result.jobTitle ? `Note saved to ${result.jobTitle}` : t('voice.note')}
-                        </p>
+                        <p className="text-sm font-semibold text-green-800">{result.message || t('voice.note')}</p>
                         {result.noteAdded && <p className="text-xs text-green-700 mt-0.5">"{result.noteAdded}"</p>}
                       </div>
                     </div>
                   )}
 
-                  {/* add_note before save (no job matched) */}
+                  {/* add_note — no job matched */}
                   {result.type === 'add_note' && !result.jobId && (
                     <div className="bg-amber-50 rounded-xl p-3">
-                      <p className="text-sm font-semibold text-amber-800">Note ready</p>
+                      <p className="text-sm font-semibold text-amber-800">{t('voice.noJobFound')}</p>
                       {result.note && <p className="text-xs text-amber-700 mt-0.5">"{result.note}"</p>}
-                      <p className="text-xs text-amber-600 mt-1">No matching job found — open a job to add manually.</p>
                     </div>
                   )}
 
