@@ -280,13 +280,17 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
       )}
 
       <div className="flex gap-2 mt-auto pt-2">
+        <button onClick={onEdit}
+          className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors flex-shrink-0">
+          {t('common.edit')}
+        </button>
         <button onClick={onAddWork}
           className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-blue-700 transition-colors">
           {t('dash.addWork')}
         </button>
         <button onClick={onNewEstimate}
-          className="flex-1 border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors">
-          {t('dash.newEstimate')}
+          className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors flex-shrink-0">
+          + Est.
         </button>
       </div>
     </div>

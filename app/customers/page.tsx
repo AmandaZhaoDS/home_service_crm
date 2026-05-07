@@ -386,7 +386,48 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile card list */}
+        <div className="md:hidden divide-y divide-gray-50">
+          {filtered.map(c => {
+            const custJobs = jobs.filter(j => j.customer === c.name);
+            return (
+              <div key={c.id} className="p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-10 h-10 rounded-full ${avatarColor(c.name)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
+                    {initials(c.name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900">{c.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{c.email}</p>
+                    {c.phone && <p className="text-xs text-gray-500">{c.phone}</p>}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-semibold text-gray-700">{custJobs.length} jobs</p>
+                    <p className="text-xs text-gray-400">{c.lastService || '—'}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button onClick={() => { setSelected(c); setModal('view'); }}
+                    className="bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors">
+                    {t('common.view')}
+                  </button>
+                  <button onClick={() => { setSelected(c); setModal('edit'); }}
+                    className="border border-gray-200 text-gray-600 text-sm font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+                    {t('common.edit')}
+                  </button>
+                  <button onClick={() => deleteCustomer(c.id)}
+                    className="border border-red-100 text-red-400 text-sm font-semibold py-2.5 rounded-xl hover:bg-red-50 transition-colors">
+                    {t('common.delete')}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && <div className="text-center py-14 text-gray-400 text-sm">{t('cust.noCustomers')}</div>}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
