@@ -8,6 +8,23 @@ import Modal from '../components/Modal';
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
+async function compressImage(file: File, maxPx = 900, quality = 0.72): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = url;
+  });
+}
+
 const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
 const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
 
@@ -281,7 +298,7 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
 
       <div className="flex gap-2 mt-auto pt-2">
         <button onClick={onEdit}
-          className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors flex-shrink-0">
+          className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors">
           {t('common.edit')}
         </button>
         <button onClick={onAddWork}
@@ -289,15 +306,15 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
           {t('dash.addWork')}
         </button>
         <button onClick={onNewEstimate}
-          className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors flex-shrink-0">
-          + Est.
+          className="flex-1 border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors">
+          {t('dash.newEstimate')}
         </button>
       </div>
     </div>
   );
 }
 
-interface EditForm { title: string; customer: string; date: string; time: string; address: string; notes: string; }
+interface EditForm { title: string; customer: string; date: string; time: string; address: string; notes: string; photos: string[]; }
 
 function EditJobModal({ job, customers, onSave, onClose }: {
   job: Job; customers: string[]; onSave: (f: EditForm) => void; onClose: () => void;
@@ -305,48 +322,120 @@ function EditJobModal({ job, customers, onSave, onClose }: {
   const t = useT();
   const [f, setF] = useState<EditForm>({
     title: job.title, customer: job.customer, date: job.date,
-    time: job.time, address: job.address, notes: job.notes,
+    time: job.time, address: job.address, notes: job.notes, photos: job.photos ?? [],
   });
-  const set = <K extends keyof EditForm>(k: K, v: string) => setF(p => ({ ...p, [k]: v }));
+  const set = <K extends keyof EditForm>(k: K, v: EditForm[K]) => setF(p => ({ ...p, [k]: v }));
   const valid = f.title.trim() && f.customer.trim();
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setPhotoUploading(true);
+    const compressed = await Promise.all(files.map(f => compressImage(f)));
+    setF(p => ({ ...p, photos: [...p.photos, ...compressed] }));
+    setPhotoUploading(false);
+    e.target.value = '';
+  };
+
   return (
-    <Modal title={t('dash.editJob')} onClose={onClose} size="md">
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLS}>{t('dash.jobTitle')}</label>
-            <input className={INPUT_CLS} value={f.title} onChange={e => set('title', e.target.value)}/>
+    <>
+      <Modal title={t('dash.editJob')} onClose={onClose} size="md">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>{t('dash.jobTitle')}</label>
+              <input className={INPUT_CLS} value={f.title} onChange={e => set('title', e.target.value)}/>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>{t('dash.customer')}</label>
+              <input className={INPUT_CLS} list="cust-edit" value={f.customer} onChange={e => set('customer', e.target.value)}/>
+              <datalist id="cust-edit">{customers.map(c => <option key={c} value={c}/>)}</datalist>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>{t('dash.date')}</label>
+              <input type="date" className={INPUT_CLS} value={f.date} onChange={e => set('date', e.target.value)}/>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>{t('dash.time')}</label>
+              <input className={INPUT_CLS} value={f.time} onChange={e => set('time', e.target.value)} placeholder="09:00 AM"/>
+            </div>
           </div>
           <div>
-            <label className={LABEL_CLS}>{t('dash.customer')}</label>
-            <input className={INPUT_CLS} list="cust-edit" value={f.customer} onChange={e => set('customer', e.target.value)}/>
-            <datalist id="cust-edit">{customers.map(c => <option key={c} value={c}/>)}</datalist>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLS}>{t('dash.date')}</label>
-            <input type="date" className={INPUT_CLS} value={f.date} onChange={e => set('date', e.target.value)}/>
+            <label className={LABEL_CLS}>{t('dash.address')}</label>
+            <input className={INPUT_CLS} value={f.address} onChange={e => set('address', e.target.value)}/>
           </div>
           <div>
-            <label className={LABEL_CLS}>{t('dash.time')}</label>
-            <input className={INPUT_CLS} value={f.time} onChange={e => set('time', e.target.value)} placeholder="09:00 AM"/>
+            <label className={LABEL_CLS}>{t('dash.notes')}</label>
+            <textarea className={INPUT_CLS + ' resize-none'} rows={3} value={f.notes} onChange={e => set('notes', e.target.value)}/>
           </div>
+
+          {/* Photos */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className={LABEL_CLS + ' mb-0'}>Photos ({f.photos.length})</label>
+              {photoUploading ? (
+                <span className="text-xs text-gray-400">Uploading…</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer transition-colors">
+                    📷 Camera
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload}/>
+                  </label>
+                  <label className="text-xs font-semibold text-gray-500 hover:text-gray-700 cursor-pointer transition-colors">
+                    ↑ Gallery
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload}/>
+                  </label>
+                </div>
+              )}
+            </div>
+            {f.photos.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {f.photos.map((photo, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer group"
+                    onClick={() => setLightbox(photo)}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo} alt={`Photo ${i+1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"/>
+                    <button onClick={e => { e.stopPropagation(); setF(p => ({ ...p, photos: p.photos.filter((_, j) => j !== i) })); }}
+                      className="absolute top-1 right-1 w-5 h-5 bg-black/50 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <label className="flex-1 flex flex-col items-center justify-center h-18 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs cursor-pointer hover:border-blue-300 hover:text-blue-500 transition-colors py-4">
+                  <span className="text-xl mb-1">📷</span>
+                  Take Photo
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload}/>
+                </label>
+                <label className="flex-1 flex flex-col items-center justify-center h-18 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs cursor-pointer hover:border-blue-300 hover:text-blue-500 transition-colors py-4">
+                  <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                  </svg>
+                  From Gallery
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload}/>
+                </label>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => { if (valid) onSave(f); }} disabled={!valid}
+            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            {t('common.save')}
+          </button>
         </div>
-        <div>
-          <label className={LABEL_CLS}>{t('dash.address')}</label>
-          <input className={INPUT_CLS} value={f.address} onChange={e => set('address', e.target.value)}/>
+      </Modal>
+      {lightbox && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={() => setLightbox(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Job photo" className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()}/>
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center text-xl transition-colors">×</button>
         </div>
-        <div>
-          <label className={LABEL_CLS}>{t('dash.notes')}</label>
-          <textarea className={INPUT_CLS + ' resize-none'} rows={3} value={f.notes} onChange={e => set('notes', e.target.value)}/>
-        </div>
-        <button onClick={() => { if (valid) onSave(f); }} disabled={!valid}
-          className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {t('common.save')}
-        </button>
-      </div>
-    </Modal>
+      )}
+    </>
   );
 }
 

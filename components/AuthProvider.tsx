@@ -145,7 +145,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setData(nextData);
       supabase
         .from('user_crm_data')
-        .upsert({ user_id: user.id, data: nextData, updated_at: new Date().toISOString() });
+        .update({ data: nextData })
+        .eq('user_id', user.id)
+        .then(({ error }) => {
+          if (error) console.error('[FieldPro] save failed:', error.message);
+        });
     },
     [user],
   );
