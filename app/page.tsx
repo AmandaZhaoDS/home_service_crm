@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
-import { Job, JobStatus, JobItem } from '../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
@@ -43,7 +43,8 @@ function WorkflowProgress({ status }: { status: JobStatus }) {
   );
 }
 
-function AddWorkModal({ onSave, onClose }: {
+function AddWorkModal({ pricebook, onSave, onClose }: {
+  pricebook: PricebookItem[];
   onSave: (item: { label: string; amount: number; quantity: number }) => void;
   onClose: () => void;
 }) {
@@ -53,6 +54,21 @@ function AddWorkModal({ onSave, onClose }: {
   return (
     <Modal title={t('dash.addWorkTitle')} onClose={onClose} size="sm">
       <div className="space-y-4">
+        {pricebook.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t('pb.fromPb')}</p>
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              {pricebook.slice(0, 6).map(item => (
+                <button key={item.id}
+                  onClick={() => onSave({ label: item.name, amount: item.unitPrice, quantity: 1 })}
+                  className="text-xs px-3 py-1.5 rounded-full border border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                  {item.name} · ${item.unitPrice}
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-gray-100 pt-3"/>
+          </div>
+        )}
         <div>
           <label className={LABEL_CLS}>{t('dash.description')}</label>
           <input className={INPUT_CLS} value={wi.label} onChange={e => setWi(w => ({ ...w, label: e.target.value }))} placeholder="e.g. Labor, Parts..."/>
@@ -476,7 +492,7 @@ export default function Home() {
       )}
 
       {modal === 'addWork' && selectedJob && (
-        <AddWorkModal onSave={addWorkItem} onClose={() => setModal('none')}/>
+        <AddWorkModal pricebook={data?.pricebook ?? []} onSave={addWorkItem} onClose={() => setModal('none')}/>
       )}
       {modal === 'newEstimate' && (
         <NewEstimateModal customers={customerNames} onSave={saveEstimate} onClose={() => setModal('none')}/>

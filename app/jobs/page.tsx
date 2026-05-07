@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Job, JobStatus, JobItem } from '../../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
 
 const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
@@ -40,6 +40,169 @@ function WorkflowProgress({ status }: { status: JobStatus }) {
   );
 }
 
+// ─── Picker Sheet (renders above z-50 modal) ──────────────────────────────────
+
+function PickerSheet({ title, children, onClose }: {
+  title: string; children: React.ReactNode; onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/25" onClick={onClose}/>
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <h3 className="text-base font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 flex items-center justify-center text-xl leading-none transition-colors">&times;</button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-5 py-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Pricebook Picker ─────────────────────────────────────────────────────────
+
+function PricebookPicker({ pricebook, onPick }: {
+  pricebook: PricebookItem[]; onPick: (item: PricebookItem) => void;
+}) {
+  const t = useT();
+  const [search, setSearch] = useState('');
+  const [cat, setCat] = useState('all');
+  const categories = useMemo(() => ['all', ...Array.from(new Set(pricebook.map(p => p.category)))], [pricebook]);
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return pricebook.filter(p =>
+      (cat === 'all' || p.category === cat) &&
+      (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
+    );
+  }, [pricebook, search, cat]);
+
+  return (
+    <div className="space-y-3">
+      <input className={INPUT_CLS} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..."/>
+      <div className="flex gap-1.5 flex-wrap">
+        {categories.map(c => (
+          <button key={c} onClick={() => setCat(c)}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${c === cat ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {c === 'all' ? t('pb.allCats') : c}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-4">{t('pb.noItems')}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {filtered.map(item => (
+            <button key={item.id} onClick={() => onPick(item)}
+              className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900">{item.name}</p>
+                <p className="text-xs text-gray-500">{item.category}{item.description ? ` · ${item.description}` : ''}</p>
+              </div>
+              <span className="text-sm font-bold text-blue-600 flex-shrink-0">${item.unitPrice}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Past Job Picker ──────────────────────────────────────────────────────────
+
+type PickedItem = { id: string; label: string; amount: number; quantity: number };
+
+function PastJobPicker({ jobs, onPickItems }: {
+  jobs: Job[]; onPickItems: (items: PickedItem[]) => void;
+}) {
+  const t = useT();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Record<string, Set<string>>>({});
+
+  const jobsWithItems = useMemo(() => jobs.filter(j => j.items.length > 0), [jobs]);
+
+  const toggle = (jobId: string, itemId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev[jobId] ?? []);
+      if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+      return { ...prev, [jobId]: next };
+    });
+  };
+
+  const totalSelected = useMemo(() =>
+    Object.values(selected).reduce((s, set) => s + set.size, 0), [selected]);
+
+  const handleAddSelected = () => {
+    const items: PickedItem[] = [];
+    jobs.forEach(job => {
+      const sel = selected[job.id];
+      if (!sel || sel.size === 0) return;
+      job.items.forEach(item => {
+        if (sel.has(item.id))
+          items.push({ id: uid(), label: item.label, amount: item.amount, quantity: item.quantity ?? 1 });
+      });
+    });
+    if (items.length > 0) onPickItems(items);
+  };
+
+  if (jobsWithItems.length === 0) {
+    return <p className="text-sm text-gray-400 text-center py-6">{t('pb.noPastJobs')}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1.5">
+        {jobsWithItems.map(job => {
+          const isExp = expanded === job.id;
+          const selSet = selected[job.id] ?? new Set<string>();
+          return (
+            <div key={job.id} className="border border-gray-100 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                onClick={() => setExpanded(isExp ? null : job.id)}>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{job.customer} – {job.title}</p>
+                  <p className="text-xs text-gray-500">{job.items.length} items · ${job.amount.toFixed(2)}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  <button onClick={e => {
+                    e.stopPropagation();
+                    onPickItems(job.items.map(i => ({ id: uid(), label: i.label, amount: i.amount, quantity: i.quantity ?? 1 })));
+                  }} className="text-xs font-semibold text-blue-600 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">
+                    {t('pb.copyAll')}
+                  </button>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </div>
+              </div>
+              {isExp && (
+                <div className="border-t border-gray-100 bg-gray-50 px-4 py-2 space-y-1">
+                  {job.items.map(item => (
+                    <label key={item.id} className="flex items-center gap-3 py-1.5 rounded-lg px-2 hover:bg-white cursor-pointer transition-colors">
+                      <input type="checkbox" checked={selSet.has(item.id)} onChange={() => toggle(job.id, item.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                      <span className="flex-1 text-sm text-gray-700">{item.label}</span>
+                      <span className="text-sm font-semibold text-gray-900">${item.amount.toFixed(2)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {totalSelected > 0 && (
+        <button onClick={handleAddSelected}
+          className="w-full bg-blue-600 text-white font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors text-sm">
+          {t('pb.addItems')} ({totalSelected})
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Form types ───────────────────────────────────────────────────────────────
+
 interface FormData {
   title:string; customer:string; status:JobStatus; date:string; time:string;
   address:string; technician:string; estimate:number; notes:string;
@@ -54,11 +217,17 @@ function jobToForm(j: Job): FormData {
     items:j.items.map(i=>({id:i.id,label:i.label,amount:i.amount,quantity:i.quantity??1}))};
 }
 
-function JobFormModal({ initial, defaultStatus, customers, onSave, onClose }: {
-  initial?: Job; defaultStatus?: JobStatus; customers:string[]; onSave:(f:FormData)=>void; onClose:()=>void;
+// ─── Job Form Modal ───────────────────────────────────────────────────────────
+
+function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, onSave, onClose }: {
+  initial?: Job; defaultStatus?: JobStatus; customers: string[];
+  pricebook: PricebookItem[]; pastJobs: Job[];
+  onSave:(f:FormData)=>void; onClose:()=>void;
 }) {
   const t = useT();
   const [f, setF] = useState<FormData>(initial ? jobToForm(initial) : blankForm(defaultStatus));
+  const [showPb, setShowPb] = useState(false);
+  const [showPast, setShowPast] = useState(false);
   const set = <K extends keyof FormData>(k:K, v:FormData[K]) => setF(p=>({...p,[k]:v}));
   const subtotal = f.items.reduce((s,i)=>s+i.amount*i.quantity,0);
   const valid = f.title.trim() && f.customer.trim();
@@ -69,83 +238,125 @@ function JobFormModal({ initial, defaultStatus, customers, onSave, onClose }: {
     {value:'invoice-sent',label:t('status.invoiceSent')},{value:'paid',label:t('status.paid')},
   ];
 
+  const addFromPricebook = useCallback((item: PricebookItem) => {
+    setF(p => ({...p, items: [...p.items, {id: uid(), label: item.name, amount: item.unitPrice, quantity: 1}]}));
+    setShowPb(false);
+  }, []);
+
+  const addFromPastJob = useCallback((items: PickedItem[]) => {
+    setF(p => ({...p, items: [...p.items, ...items]}));
+    setShowPast(false);
+  }, []);
+
   return (
-    <Modal title={initial ? t('jobs.editTitle') : t('jobs.formTitle')} onClose={onClose} size="lg">
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.jobTitle')}</label>
-            <input className={INPUT_CLS} value={f.title} onChange={e=>set('title',e.target.value)} placeholder="e.g. Kitchen Sink Repair"/>
-          </div>
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.customer')}</label>
-            <input className={INPUT_CLS} list="cust-list" value={f.customer} onChange={e=>set('customer',e.target.value)}/>
-            <datalist id="cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.status')}</label>
-            <select className={INPUT_CLS} value={f.status} onChange={e=>set('status',e.target.value as JobStatus)}>
-              {STATUS_OPTS.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.technician')}</label>
-            <input className={INPUT_CLS} value={f.technician} onChange={e=>set('technician',e.target.value)}/>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.date')}</label>
-            <input type="date" className={INPUT_CLS} value={f.date} onChange={e=>set('date',e.target.value)}/>
-          </div>
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.time')}</label>
-            <input className={INPUT_CLS} value={f.time} onChange={e=>set('time',e.target.value)} placeholder="09:00 AM"/>
-          </div>
-        </div>
-        <div>
-          <label className={LABEL_CLS}>{t('jobs.address')}</label>
-          <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)}/>
-        </div>
-        <div>
-          <label className={LABEL_CLS}>{t('jobs.estimateAmt')}</label>
-          <input type="number" min={0} className={INPUT_CLS} value={f.estimate||''} onChange={e=>set('estimate',Number(e.target.value))}/>
-        </div>
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className={LABEL_CLS + ' mb-0'}>{t('jobs.workItems')}</label>
-            <button onClick={()=>setF(p=>({...p,items:[...p.items,{id:uid(),label:'',amount:0,quantity:1}]}))}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700">{t('jobs.addItem')}</button>
-          </div>
-          {f.items.map(item=>(
-            <div key={item.id} className="flex items-center gap-2 mb-2">
-              <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Description" value={item.label}
-                onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,label:e.target.value}:i)}))}/>
-              <input type="number" min={0} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$" value={item.amount||''}
-                onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,amount:Number(e.target.value)}:i)}))}/>
-              <input type="number" min={1} className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty" value={item.quantity}
-                onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,quantity:Number(e.target.value)}:i)}))}/>
-              <button onClick={()=>setF(p=>({...p,items:p.items.filter(i=>i.id!==item.id)}))} className="text-gray-300 hover:text-red-400 transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
+    <>
+      <Modal title={initial ? t('jobs.editTitle') : t('jobs.formTitle')} onClose={onClose} size="lg">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.jobTitle')}</label>
+              <input className={INPUT_CLS} value={f.title} onChange={e=>set('title',e.target.value)} placeholder="e.g. Kitchen Sink Repair"/>
             </div>
-          ))}
-          {f.items.length>0 && <p className="text-sm font-semibold text-gray-700 text-right">{t('dash.subtotal')} ${subtotal.toFixed(2)}</p>}
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.customer')}</label>
+              <input className={INPUT_CLS} list="cust-list" value={f.customer} onChange={e=>set('customer',e.target.value)}/>
+              <datalist id="cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.status')}</label>
+              <select className={INPUT_CLS} value={f.status} onChange={e=>set('status',e.target.value as JobStatus)}>
+                {STATUS_OPTS.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.technician')}</label>
+              <input className={INPUT_CLS} value={f.technician} onChange={e=>set('technician',e.target.value)}/>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.date')}</label>
+              <input type="date" className={INPUT_CLS} value={f.date} onChange={e=>set('date',e.target.value)}/>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>{t('jobs.time')}</label>
+              <input className={INPUT_CLS} value={f.time} onChange={e=>set('time',e.target.value)} placeholder="09:00 AM"/>
+            </div>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>{t('jobs.address')}</label>
+            <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)}/>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>{t('jobs.estimateAmt')}</label>
+            <input type="number" min={0} className={INPUT_CLS} value={f.estimate||''} onChange={e=>set('estimate',Number(e.target.value))}/>
+          </div>
+
+          {/* Work Items */}
+          <div>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <label className={LABEL_CLS + ' mb-0'}>{t('jobs.workItems')}</label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {pricebook.length > 0 && (
+                  <button onClick={() => setShowPb(true)}
+                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors">
+                    {t('pb.fromPb')}
+                  </button>
+                )}
+                {pastJobs.filter(j => j.items.length > 0).length > 0 && (
+                  <button onClick={() => setShowPast(true)}
+                    className="text-xs font-semibold text-violet-600 hover:text-violet-700 border border-violet-200 hover:bg-violet-50 px-2.5 py-1.5 rounded-lg transition-colors">
+                    {t('pb.copyJob')}
+                  </button>
+                )}
+                <button onClick={()=>setF(p=>({...p,items:[...p.items,{id:uid(),label:'',amount:0,quantity:1}]}))}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700">{t('jobs.addItem')}</button>
+              </div>
+            </div>
+            {f.items.map(item=>(
+              <div key={item.id} className="flex items-center gap-2 mb-2">
+                <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Description" value={item.label}
+                  onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,label:e.target.value}:i)}))}/>
+                <input type="number" min={0} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$" value={item.amount||''}
+                  onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,amount:Number(e.target.value)}:i)}))}/>
+                <input type="number" min={1} className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty" value={item.quantity}
+                  onChange={e=>setF(p=>({...p,items:p.items.map(i=>i.id===item.id?{...i,quantity:Number(e.target.value)}:i)}))}/>
+                <button onClick={()=>setF(p=>({...p,items:p.items.filter(i=>i.id!==item.id)}))} className="text-gray-300 hover:text-red-400 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            ))}
+            {f.items.length>0 && <p className="text-sm font-semibold text-gray-700 text-right">{t('dash.subtotal')} ${subtotal.toFixed(2)}</p>}
+          </div>
+
+          <div>
+            <label className={LABEL_CLS}>{t('jobs.notes')}</label>
+            <textarea className={INPUT_CLS+' resize-none'} rows={3} value={f.notes} onChange={e=>set('notes',e.target.value)}/>
+          </div>
+          <button onClick={()=>{ if(valid) onSave(f); }} disabled={!valid}
+            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            {initial ? t('jobs.saveBtn') : t('jobs.createBtn')}
+          </button>
         </div>
-        <div>
-          <label className={LABEL_CLS}>{t('jobs.notes')}</label>
-          <textarea className={INPUT_CLS+' resize-none'} rows={3} value={f.notes} onChange={e=>set('notes',e.target.value)}/>
-        </div>
-        <button onClick={()=>{ if(valid) onSave(f); }} disabled={!valid}
-          className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {initial ? t('jobs.saveBtn') : t('jobs.createBtn')}
-        </button>
-      </div>
-    </Modal>
+      </Modal>
+
+      {showPb && (
+        <PickerSheet title={t('pb.fromPb')} onClose={() => setShowPb(false)}>
+          <PricebookPicker pricebook={pricebook} onPick={addFromPricebook}/>
+        </PickerSheet>
+      )}
+      {showPast && (
+        <PickerSheet title={t('pb.copyJob')} onClose={() => setShowPast(false)}>
+          <PastJobPicker jobs={pastJobs} onPickItems={addFromPastJob}/>
+        </PickerSheet>
+      )}
+    </>
   );
 }
+
+// ─── Job Detail Modal ─────────────────────────────────────────────────────────
 
 function JobDetailModal({ job, onEdit, onAdvance, onAddWork, onClose }: {
   job:Job; onEdit:()=>void; onAdvance:()=>void;
@@ -234,10 +445,13 @@ function JobDetailModal({ job, onEdit, onAdvance, onAddWork, onClose }: {
   );
 }
 
+// ─── Jobs Page ────────────────────────────────────────────────────────────────
+
 export default function JobsPage() {
   const { data, updateData } = useAuth();
   const t = useT();
   const jobs = data?.jobs ?? [];
+  const pricebook = data?.pricebook ?? [];
   const customerNames = [...new Set((data?.customers??[]).map(c=>c.name))];
 
   const FILTER_TABS = [
@@ -262,7 +476,6 @@ export default function JobsPage() {
   const [modal, setModal] = useState<'none'|'create'|'estimate'|'edit'|'view'>('none');
   const [selected, setSelected] = useState<Job|null>(null);
 
-  // Voice assistant: open job detail via navigation or in-page event
   useEffect(() => {
     if (!data) return;
     const cmd = sessionStorage.getItem('voice-nav');
@@ -446,12 +659,22 @@ export default function JobsPage() {
       </div>
 
       {(modal==='create'||modal==='estimate') && (
-        <JobFormModal defaultStatus={modal==='estimate'?'estimate':'scheduled'} customers={customerNames}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])} onClose={()=>setModal('none')}/>
+        <JobFormModal
+          defaultStatus={modal==='estimate'?'estimate':'scheduled'}
+          customers={customerNames}
+          pricebook={pricebook}
+          pastJobs={jobs}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])}
+          onClose={()=>setModal('none')}/>
       )}
       {modal==='edit' && selected && (
-        <JobFormModal initial={selected} customers={customerNames}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)} onClose={()=>setModal('none')}/>
+        <JobFormModal
+          initial={selected}
+          customers={customerNames}
+          pricebook={pricebook}
+          pastJobs={jobs.filter(j => j.id !== selected.id)}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)}
+          onClose={()=>setModal('none')}/>
       )}
       {modal==='view' && selected && (
         <JobDetailModal job={selected}

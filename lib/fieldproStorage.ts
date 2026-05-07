@@ -61,11 +61,22 @@ export interface Appointment {
   status: 'scheduled' | 'on-site' | 'completed';
 }
 
+export interface PricebookItem {
+  id: string;
+  category: string;
+  name: string;
+  description: string;
+  unitPrice: number;
+  unit: 'flat' | 'per hour' | 'per unit';
+  timesUsed: number;
+}
+
 export interface FieldProData {
   jobs: Job[];
   customers: Customer[];
   invoices: Invoice[];
   appointments: Appointment[];
+  pricebook: PricebookItem[];
 }
 
 export interface UserAccount {
@@ -201,6 +212,16 @@ export function getDefaultData(): FieldProData {
         technician: 'Alex Chen',
         status: 'on-site',
       },
+    ],
+    pricebook: [
+      { id: uid(), category: 'General',   name: 'Diagnostic Inspection', description: 'Initial site diagnosis and assessment', unitPrice: 75,  unit: 'flat',     timesUsed: 3 },
+      { id: uid(), category: 'Plumbing',  name: 'Faucet Replacement',    description: 'Remove old faucet and install new one',  unitPrice: 150, unit: 'flat',     timesUsed: 2 },
+      { id: uid(), category: 'Plumbing',  name: 'Toilet Installation',   description: 'Install and seal toilet unit',            unitPrice: 150, unit: 'flat',     timesUsed: 1 },
+      { id: uid(), category: 'HVAC',      name: 'Water Heater Inspection',description: 'Inspect and service water heater',       unitPrice: 120, unit: 'flat',     timesUsed: 1 },
+      { id: uid(), category: 'HVAC',      name: 'Filter Replacement',    description: 'Replace HVAC or water heater filter',     unitPrice: 80,  unit: 'per unit', timesUsed: 2 },
+      { id: uid(), category: 'General',   name: 'Parts & Materials',     description: 'Additional parts and materials',          unitPrice: 50,  unit: 'per unit', timesUsed: 5 },
+      { id: uid(), category: 'Plumbing',  name: 'Drain Cleaning',        description: 'Clear blocked drain line',                unitPrice: 95,  unit: 'flat',     timesUsed: 0 },
+      { id: uid(), category: 'Electrical','name': 'Outlet Replacement',  description: 'Replace damaged electrical outlet',       unitPrice: 85,  unit: 'flat',     timesUsed: 0 },
     ],
   };
 }
