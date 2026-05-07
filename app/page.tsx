@@ -1,13 +1,10 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import dynamic from 'next/dynamic';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
 import { Job, JobStatus, JobItem, PricebookItem } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
-
-const RouteMap = dynamic(() => import('../components/RouteMap'), { ssr: false });
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
@@ -517,27 +514,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-
-      {/* Daily Route Map */}
-      {todayJobs.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-gray-900">{t('dash.todayJobs')} — Route</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Stops in order · Travel times via OpenStreetMap</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {todayJobs.map((j, i) => (
-                <div key={j.id} className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
-                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0">{i + 1}</span>
-                  <span className="truncate max-w-[80px]">{j.customer.split(' ')[0]}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <RouteMap jobs={todayJobs}/>
-        </div>
-      )}
 
       {recentActivities.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm p-5">

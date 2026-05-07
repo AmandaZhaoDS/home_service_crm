@@ -110,10 +110,34 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
 }) {
   const t = useT();
   const totalSpent = jobs.filter(j=>j.status==='paid').reduce((s,j)=>s+j.amount,0);
+  const encoded = customer.address ? encodeURIComponent(customer.address) : '';
 
   return (
     <Modal title={t('cust.details')} onClose={onClose} size="md">
       <div className="space-y-5">
+        {/* Property aerial view */}
+        {customer.address && (
+          <div className="rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+            <iframe
+              title="property-view"
+              src={`https://maps.google.com/maps?q=${encoded}&z=18&t=k&output=embed`}
+              width="100%" height="180"
+              style={{ border: 0, display: 'block' }}
+              loading="lazy" allowFullScreen/>
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-t border-gray-100">
+              <p className="text-xs text-gray-500 truncate flex-1">{customer.address}</p>
+              <div className="flex gap-2 ml-2 flex-shrink-0">
+                <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
+                  className="text-xs font-semibold text-blue-600 hover:underline">Street View ↗</a>
+                {customer.phone && (
+                  <a href={`tel:${customer.phone.replace(/\D/g,'')}`}
+                    className="text-xs font-semibold text-emerald-600 hover:underline">{customer.phone}</a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-4">
           <div className={`w-14 h-14 rounded-2xl ${avatarColor(customer.name)} flex items-center justify-center text-white text-xl font-bold flex-shrink-0`}>
             {initials(customer.name)}

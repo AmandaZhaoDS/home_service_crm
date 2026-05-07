@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem } from '../../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Reminder } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
 
 const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
@@ -24,6 +24,27 @@ const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm 
 const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
 const PAGE_SIZE = 8;
 
+// ─── Image compression ────────────────────────────────────────────────────────
+
+async function compressImage(file: File, maxPx = 900, quality = 0.72): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = url;
+  });
+}
+
+// ─── Workflow progress ────────────────────────────────────────────────────────
+
 function WorkflowProgress({ status }: { status: JobStatus }) {
   const idx = WORKFLOW_STEPS.indexOf(status);
   return (
@@ -40,7 +61,7 @@ function WorkflowProgress({ status }: { status: JobStatus }) {
   );
 }
 
-// ─── Picker Sheet (renders above z-50 modal) ──────────────────────────────────
+// ─── Picker sheet (z-[60] overlay above modal) ───────────────────────────────
 
 function PickerSheet({ title, children, onClose }: {
   title: string; children: React.ReactNode; onClose: () => void;
@@ -59,7 +80,7 @@ function PickerSheet({ title, children, onClose }: {
   );
 }
 
-// ─── Pricebook Picker ─────────────────────────────────────────────────────────
+// ─── Pricebook picker ─────────────────────────────────────────────────────────
 
 function PricebookPicker({ pricebook, onPick }: {
   pricebook: PricebookItem[]; onPick: (item: PricebookItem) => void;
@@ -75,7 +96,6 @@ function PricebookPicker({ pricebook, onPick }: {
       (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
     );
   }, [pricebook, search, cat]);
-
   return (
     <div className="space-y-3">
       <input className={INPUT_CLS} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..."/>
@@ -87,9 +107,7 @@ function PricebookPicker({ pricebook, onPick }: {
           </button>
         ))}
       </div>
-      {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">{t('pb.noItems')}</p>
-      ) : (
+      {filtered.length === 0 ? <p className="text-sm text-gray-400 text-center py-4">{t('pb.noItems')}</p> : (
         <div className="space-y-1.5">
           {filtered.map(item => (
             <button key={item.id} onClick={() => onPick(item)}
@@ -107,7 +125,7 @@ function PricebookPicker({ pricebook, onPick }: {
   );
 }
 
-// ─── Past Job Picker ──────────────────────────────────────────────────────────
+// ─── Past job picker ──────────────────────────────────────────────────────────
 
 type PickedItem = { id: string; label: string; amount: number; quantity: number };
 
@@ -117,9 +135,7 @@ function PastJobPicker({ jobs, onPickItems }: {
   const t = useT();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, Set<string>>>({});
-
   const jobsWithItems = useMemo(() => jobs.filter(j => j.items.length > 0), [jobs]);
-
   const toggle = (jobId: string, itemId: string) => {
     setSelected(prev => {
       const next = new Set(prev[jobId] ?? []);
@@ -127,27 +143,19 @@ function PastJobPicker({ jobs, onPickItems }: {
       return { ...prev, [jobId]: next };
     });
   };
-
-  const totalSelected = useMemo(() =>
-    Object.values(selected).reduce((s, set) => s + set.size, 0), [selected]);
-
+  const totalSelected = useMemo(() => Object.values(selected).reduce((s, set) => s + set.size, 0), [selected]);
   const handleAddSelected = () => {
     const items: PickedItem[] = [];
     jobs.forEach(job => {
       const sel = selected[job.id];
       if (!sel || sel.size === 0) return;
       job.items.forEach(item => {
-        if (sel.has(item.id))
-          items.push({ id: uid(), label: item.label, amount: item.amount, quantity: item.quantity ?? 1 });
+        if (sel.has(item.id)) items.push({ id: uid(), label: item.label, amount: item.amount, quantity: item.quantity ?? 1 });
       });
     });
     if (items.length > 0) onPickItems(items);
   };
-
-  if (jobsWithItems.length === 0) {
-    return <p className="text-sm text-gray-400 text-center py-6">{t('pb.noPastJobs')}</p>;
-  }
-
+  if (jobsWithItems.length === 0) return <p className="text-sm text-gray-400 text-center py-6">{t('pb.noPastJobs')}</p>;
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
@@ -163,14 +171,11 @@ function PastJobPicker({ jobs, onPickItems }: {
                   <p className="text-xs text-gray-500">{job.items.length} items · ${job.amount.toFixed(2)}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                  <button onClick={e => {
-                    e.stopPropagation();
-                    onPickItems(job.items.map(i => ({ id: uid(), label: i.label, amount: i.amount, quantity: i.quantity ?? 1 })));
-                  }} className="text-xs font-semibold text-blue-600 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">
+                  <button onClick={e => { e.stopPropagation(); onPickItems(job.items.map(i => ({ id: uid(), label: i.label, amount: i.amount, quantity: i.quantity ?? 1 }))); }}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">
                     {t('pb.copyAll')}
                   </button>
-                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`}
-                    fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
                   </svg>
                 </div>
@@ -208,7 +213,6 @@ interface FormData {
   address:string; technician:string; estimate:number; notes:string;
   items:{id:string;label:string;amount:number;quantity:number}[];
 }
-
 function blankForm(defaultStatus: JobStatus = 'scheduled'): FormData {
   return {title:'',customer:'',status:defaultStatus,date:new Date().toISOString().split('T')[0],time:'09:00 AM',address:'',technician:'',estimate:0,notes:'',items:[]};
 }
@@ -253,46 +257,29 @@ function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, 
       <Modal title={initial ? t('jobs.editTitle') : t('jobs.formTitle')} onClose={onClose} size="lg">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.jobTitle')}</label>
-              <input className={INPUT_CLS} value={f.title} onChange={e=>set('title',e.target.value)} placeholder="e.g. Kitchen Sink Repair"/>
-            </div>
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.customer')}</label>
+            <div><label className={LABEL_CLS}>{t('jobs.jobTitle')}</label>
+              <input className={INPUT_CLS} value={f.title} onChange={e=>set('title',e.target.value)} placeholder="e.g. Kitchen Sink Repair"/></div>
+            <div><label className={LABEL_CLS}>{t('jobs.customer')}</label>
               <input className={INPUT_CLS} list="cust-list" value={f.customer} onChange={e=>set('customer',e.target.value)}/>
-              <datalist id="cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist>
-            </div>
+              <datalist id="cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.status')}</label>
+            <div><label className={LABEL_CLS}>{t('jobs.status')}</label>
               <select className={INPUT_CLS} value={f.status} onChange={e=>set('status',e.target.value as JobStatus)}>
-                {STATUS_OPTS.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.technician')}</label>
-              <input className={INPUT_CLS} value={f.technician} onChange={e=>set('technician',e.target.value)}/>
-            </div>
+                {STATUS_OPTS.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}</select></div>
+            <div><label className={LABEL_CLS}>{t('jobs.technician')}</label>
+              <input className={INPUT_CLS} value={f.technician} onChange={e=>set('technician',e.target.value)}/></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.date')}</label>
-              <input type="date" className={INPUT_CLS} value={f.date} onChange={e=>set('date',e.target.value)}/>
-            </div>
-            <div>
-              <label className={LABEL_CLS}>{t('jobs.time')}</label>
-              <input className={INPUT_CLS} value={f.time} onChange={e=>set('time',e.target.value)} placeholder="09:00 AM"/>
-            </div>
+            <div><label className={LABEL_CLS}>{t('jobs.date')}</label>
+              <input type="date" className={INPUT_CLS} value={f.date} onChange={e=>set('date',e.target.value)}/></div>
+            <div><label className={LABEL_CLS}>{t('jobs.time')}</label>
+              <input className={INPUT_CLS} value={f.time} onChange={e=>set('time',e.target.value)} placeholder="09:00 AM"/></div>
           </div>
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.address')}</label>
-            <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)}/>
-          </div>
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.estimateAmt')}</label>
-            <input type="number" min={0} className={INPUT_CLS} value={f.estimate||''} onChange={e=>set('estimate',Number(e.target.value))}/>
-          </div>
+          <div><label className={LABEL_CLS}>{t('jobs.address')}</label>
+            <input className={INPUT_CLS} value={f.address} onChange={e=>set('address',e.target.value)}/></div>
+          <div><label className={LABEL_CLS}>{t('jobs.estimateAmt')}</label>
+            <input type="number" min={0} className={INPUT_CLS} value={f.estimate||''} onChange={e=>set('estimate',Number(e.target.value))}/></div>
 
           {/* Work Items */}
           <div>
@@ -331,41 +318,54 @@ function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, 
             {f.items.length>0 && <p className="text-sm font-semibold text-gray-700 text-right">{t('dash.subtotal')} ${subtotal.toFixed(2)}</p>}
           </div>
 
-          <div>
-            <label className={LABEL_CLS}>{t('jobs.notes')}</label>
-            <textarea className={INPUT_CLS+' resize-none'} rows={3} value={f.notes} onChange={e=>set('notes',e.target.value)}/>
-          </div>
+          <div><label className={LABEL_CLS}>{t('jobs.notes')}</label>
+            <textarea className={INPUT_CLS+' resize-none'} rows={3} value={f.notes} onChange={e=>set('notes',e.target.value)}/></div>
           <button onClick={()=>{ if(valid) onSave(f); }} disabled={!valid}
             className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {initial ? t('jobs.saveBtn') : t('jobs.createBtn')}
           </button>
         </div>
       </Modal>
-
-      {showPb && (
-        <PickerSheet title={t('pb.fromPb')} onClose={() => setShowPb(false)}>
-          <PricebookPicker pricebook={pricebook} onPick={addFromPricebook}/>
-        </PickerSheet>
-      )}
-      {showPast && (
-        <PickerSheet title={t('pb.copyJob')} onClose={() => setShowPast(false)}>
-          <PastJobPicker jobs={pastJobs} onPickItems={addFromPastJob}/>
-        </PickerSheet>
-      )}
+      {showPb && <PickerSheet title={t('pb.fromPb')} onClose={() => setShowPb(false)}><PricebookPicker pricebook={pricebook} onPick={addFromPricebook}/></PickerSheet>}
+      {showPast && <PickerSheet title={t('pb.copyJob')} onClose={() => setShowPast(false)}><PastJobPicker jobs={pastJobs} onPickItems={addFromPastJob}/></PickerSheet>}
     </>
   );
 }
 
 // ─── Job Detail Modal ─────────────────────────────────────────────────────────
 
-function JobDetailModal({ job, customerPhone, onEdit, onAdvance, onAddWork, onClose }: {
-  job:Job; customerPhone:string; onEdit:()=>void; onAdvance:()=>void;
-  onAddWork:(item:{label:string;amount:number;quantity:number})=>void; onClose:()=>void;
+function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAddWork, onUpdateJob, onScheduleFollowUp, onAddReminder, onClose }: {
+  job: Job;
+  customerPhone: string;
+  reminders: Reminder[];
+  onEdit: () => void;
+  onAdvance: () => void;
+  onAddWork: (item:{label:string;amount:number;quantity:number}) => void;
+  onUpdateJob: (updated: Job) => void;
+  onScheduleFollowUp: (job: Job, date: string, time: string, notes: string) => void;
+  onAddReminder: (r: Omit<Reminder,'id'|'jobId'|'createdAt'>) => void;
+  onClose: () => void;
 }) {
   const t = useT();
   const total = job.items.reduce((s,i)=>s+i.amount*(i.quantity??1),0);
   const [addingWork, setAddingWork] = useState(false);
   const [wi, setWi] = useState({label:'',amount:0,quantity:1});
+  const [showMap, setShowMap] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [lightbox, setLightbox] = useState<string|null>(null);
+
+  // Follow-up panel
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  const [fuDate, setFuDate] = useState('');
+  const [fuTime, setFuTime] = useState('09:00 AM');
+  const [fuNotes, setFuNotes] = useState('');
+
+  // Parts reminder panel
+  const [showParts, setShowParts] = useState(false);
+  const [partsDesc, setPartsDesc] = useState('');
+  const [partsETA, setPartsETA] = useState('');
+
+  const encoded = encodeURIComponent(job.address);
 
   const NEXT_STATUS_LABEL: Partial<Record<JobStatus,string>> = {
     estimate:t('jobs.scheduleJob'), scheduled:t('jobs.startJob'), 'on-site':t('jobs.markComplete'),
@@ -376,105 +376,257 @@ function JobDetailModal({ job, customerPhone, onEdit, onAdvance, onAddWork, onCl
   };
   const nextLabel = NEXT_STATUS_LABEL[job.status];
 
-  const [showMap, setShowMap] = useState(false);
-  const encoded = encodeURIComponent(job.address);
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setPhotoUploading(true);
+    const compressed = await Promise.all(files.map(f => compressImage(f)));
+    onUpdateJob({ ...job, photos: [...job.photos, ...compressed] });
+    setPhotoUploading(false);
+    e.target.value = '';
+  };
+
+  const removePhoto = (idx: number) => {
+    onUpdateJob({ ...job, photos: job.photos.filter((_, i) => i !== idx) });
+  };
+
+  const handleScheduleFollowUp = () => {
+    if (!fuDate) return;
+    onScheduleFollowUp(job, fuDate, fuTime, fuNotes);
+    setShowFollowUp(false); setFuDate(''); setFuTime('09:00 AM'); setFuNotes('');
+  };
+
+  const handleAddPartsReminder = () => {
+    if (!partsDesc || !partsETA) return;
+    onAddReminder({ type: 'parts', message: `Parts check: ${partsDesc}`, dueDate: partsETA, done: false });
+    setShowParts(false); setPartsDesc(''); setPartsETA('');
+  };
+
+  const jobReminders = reminders.filter(r => r.jobId === job.id && !r.done);
 
   return (
-    <Modal title={t('jobs.detailTitle')} onClose={onClose} size="lg">
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <h3 className="text-xl font-bold text-gray-900">{job.customer}</h3>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <p className="text-sm text-gray-500">{job.address}</p>
-            <div className="flex gap-1">
-              <button onClick={() => setShowMap(m => !m)}
-                className={`text-xs font-semibold px-2 py-0.5 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                Map
-              </button>
-              <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
-                className="text-xs font-semibold px-2 py-0.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
-                Street View
+    <>
+      <Modal title={t('jobs.detailTitle')} onClose={onClose} size="lg">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-xl font-bold text-gray-900">{job.customer}</h3>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <p className="text-sm text-gray-500">{job.address}</p>
+              <div className="flex gap-1">
+                <button onClick={() => setShowMap(m => !m)}
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                  Map
+                </button>
+                <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
+                  className="text-xs font-semibold px-2 py-0.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+                  Street View
+                </a>
+              </div>
+            </div>
+            {showMap && (
+              <div className="mt-2 rounded-xl overflow-hidden border border-gray-100">
+                <iframe title="map" src={`https://maps.google.com/maps?q=${encoded}&output=embed&z=16`}
+                  width="100%" height="200" style={{ border: 0, display: 'block' }} loading="lazy" allowFullScreen/>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            {customerPhone && (
+              <a href={`tel:${customerPhone.replace(/\D/g,'')}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 text-xs font-semibold transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                </svg>
+                {customerPhone}
               </a>
+            )}
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_CLS[job.status]??'bg-gray-100 text-gray-700'}`}>
+              {job.status.replace('-',' ')}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+          <span className="font-semibold text-gray-800">{job.title}</span>
+          <span className="text-gray-300">•</span>
+          <span>{fmtDate(job.date)}, {job.time}</span>
+          {job.technician && <><span className="text-gray-300">•</span><span>{job.technician}</span></>}
+        </div>
+        <WorkflowProgress status={job.status}/>
+        <p className="text-sm font-semibold text-gray-600 mb-4">{t('jobs.estimateTotal')} <span className="text-gray-900">${job.estimate.toFixed(2)}</span></p>
+
+        {/* Work items */}
+        {job.items.length>0 && (
+          <div className="mb-5 bg-gray-50 rounded-xl p-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('jobs.workItemsSec')}</p>
+            {job.items.map(item=>(
+              <div key={item.id} className="flex justify-between text-sm py-1">
+                <span className="text-gray-700">{item.label}{(item.quantity??1)>1?` × ${item.quantity}`:''}</span>
+                <span className="font-semibold text-gray-900">${(item.amount*(item.quantity??1)).toFixed(2)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-sm font-bold border-t border-gray-200 pt-2 mt-1">
+              <span>Total</span><span>${total.toFixed(2)}</span>
             </div>
           </div>
-          {showMap && (
-            <div className="mt-2 rounded-xl overflow-hidden border border-gray-100">
-              <iframe title="map" src={`https://maps.google.com/maps?q=${encoded}&output=embed&z=16`}
-                width="100%" height="200" style={{ border: 0, display: 'block' }} loading="lazy" allowFullScreen/>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-          {customerPhone && (
-            <a href={`tel:${customerPhone.replace(/\D/g, '')}`}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 text-xs font-semibold transition-colors"
-              title={`Call ${customerPhone}`}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-              </svg>
-              {customerPhone}
-            </a>
-          )}
-          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_CLS[job.status]??'bg-gray-100 text-gray-700'}`}>
-            {job.status.replace('-',' ')}
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-        <span className="font-semibold text-gray-800">{job.title}</span>
-        <span className="text-gray-300">•</span>
-        <span>{fmtDate(job.date)}, {job.time}</span>
-        {job.technician && <><span className="text-gray-300">•</span><span>{job.technician}</span></>}
-      </div>
-      <WorkflowProgress status={job.status}/>
-      <p className="text-sm font-semibold text-gray-600 mb-4">{t('jobs.estimateTotal')} <span className="text-gray-900">${job.estimate.toFixed(2)}</span></p>
-      {job.items.length>0 && (
-        <div className="mb-5 bg-gray-50 rounded-xl p-4">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('jobs.workItemsSec')}</p>
-          {job.items.map(item=>(
-            <div key={item.id} className="flex justify-between text-sm py-1">
-              <span className="text-gray-700">{item.label}{(item.quantity??1)>1?` × ${item.quantity}`:''}</span>
-              <span className="font-semibold text-gray-900">${(item.amount*(item.quantity??1)).toFixed(2)}</span>
-            </div>
-          ))}
-          <div className="flex justify-between text-sm font-bold border-t border-gray-200 pt-2 mt-1">
-            <span>Total</span><span>${total.toFixed(2)}</span>
-          </div>
-        </div>
-      )}
-      {job.notes && (
-        <div className="mb-5">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('jobs.notesSec')}</p>
-          <p className="text-sm text-gray-700 bg-gray-50 rounded-xl p-3 leading-relaxed">{job.notes}</p>
-        </div>
-      )}
-      {addingWork && (
-        <div className="mb-4 bg-blue-50 rounded-xl p-4 space-y-3">
-          <p className="text-sm font-semibold text-gray-800">{t('jobs.addWorkTitle')}</p>
-          <div className="flex gap-2">
-            <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Description"
-              value={wi.label} onChange={e=>setWi(w=>({...w,label:e.target.value}))}/>
-            <input type="number" min={0} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$"
-              value={wi.amount||''} onChange={e=>setWi(w=>({...w,amount:Number(e.target.value)}))}/>
-            <input type="number" min={1} className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty"
-              value={wi.quantity} onChange={e=>setWi(w=>({...w,quantity:Number(e.target.value)}))}/>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={()=>{ if(wi.label){ onAddWork(wi); setWi({label:'',amount:0,quantity:1}); setAddingWork(false); }}}
-              className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-blue-700 transition-colors">{t('common.save')}</button>
-            <button onClick={()=>setAddingWork(false)}
-              className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
-          </div>
-        </div>
-      )}
-      <div className="flex gap-2 pt-2 border-t border-gray-100">
-        <button onClick={onEdit} className="flex-1 border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">{t('common.edit')}</button>
-        <button onClick={()=>setAddingWork(true)} className="flex-1 border border-blue-200 text-blue-600 text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-50 transition-colors">{t('jobs.addWork')}</button>
-        {nextLabel && NEXT_MAP[job.status] && (
-          <button onClick={onAdvance} className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors">{nextLabel}</button>
         )}
-      </div>
-    </Modal>
+
+        {/* Notes */}
+        {job.notes && (
+          <div className="mb-5">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('jobs.notesSec')}</p>
+            <p className="text-sm text-gray-700 bg-gray-50 rounded-xl p-3 leading-relaxed">{job.notes}</p>
+          </div>
+        )}
+
+        {/* Photos */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Photos ({job.photos.length})</p>
+            <label className={`text-xs font-semibold cursor-pointer transition-colors ${photoUploading ? 'text-gray-400' : 'text-blue-600 hover:text-blue-700'}`}>
+              {photoUploading ? 'Uploading…' : '+ Upload'}
+              <input type="file" accept="image/*" multiple className="hidden" disabled={photoUploading} onChange={handlePhotoUpload}/>
+            </label>
+          </div>
+          {job.photos.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2">
+              {job.photos.map((photo, i) => (
+                <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer group"
+                  onClick={() => setLightbox(photo)}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo} alt={`Photo ${i+1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"/>
+                  <button onClick={e => { e.stopPropagation(); removePhoto(i); }}
+                    className="absolute top-1 right-1 w-5 h-5 bg-black/50 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs cursor-pointer hover:border-blue-300 hover:text-blue-500 transition-colors">
+              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+              </svg>
+              Tap to upload job photos
+              <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload}/>
+            </label>
+          )}
+        </div>
+
+        {/* Active reminders for this job */}
+        {jobReminders.length > 0 && (
+          <div className="mb-5">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Reminders</p>
+            <div className="space-y-1.5">
+              {jobReminders.map(r => (
+                <div key={r.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${r.type==='followup'?'bg-blue-50':'bg-amber-50'}`}>
+                  <span className="text-lg">{r.type==='followup'?'📅':'📦'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-semibold text-sm ${r.type==='followup'?'text-blue-800':'text-amber-800'}`}>{r.message}</p>
+                    <p className={`text-xs ${r.type==='followup'?'text-blue-600':'text-amber-600'}`}>Due {fmtDate(r.dueDate)}</p>
+                  </div>
+                  <button onClick={() => onAddReminder({ type: r.type, message: r.message, dueDate: r.dueDate, done: true })}
+                    className="text-xs text-gray-400 hover:text-gray-600">✓</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Add work inline */}
+        {addingWork && (
+          <div className="mb-4 bg-blue-50 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-gray-800">{t('jobs.addWorkTitle')}</p>
+            <div className="flex gap-2">
+              <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Description"
+                value={wi.label} onChange={e=>setWi(w=>({...w,label:e.target.value}))}/>
+              <input type="number" min={0} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$"
+                value={wi.amount||''} onChange={e=>setWi(w=>({...w,amount:Number(e.target.value)}))}/>
+              <input type="number" min={1} className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty"
+                value={wi.quantity} onChange={e=>setWi(w=>({...w,quantity:Number(e.target.value)}))}/>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>{ if(wi.label){ onAddWork(wi); setWi({label:'',amount:0,quantity:1}); setAddingWork(false); }}}
+                className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-blue-700 transition-colors">{t('common.save')}</button>
+              <button onClick={()=>setAddingWork(false)}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Follow-up */}
+        {showFollowUp && (
+          <div className="mb-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-indigo-800">Schedule Follow-up Visit</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={fuDate} onChange={e=>setFuDate(e.target.value)}
+                className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
+              <input value={fuTime} onChange={e=>setFuTime(e.target.value)} placeholder="09:00 AM"
+                className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
+            </div>
+            <input value={fuNotes} onChange={e=>setFuNotes(e.target.value)}
+              placeholder="What needs to be done next visit?"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
+            <div className="flex gap-2">
+              <button onClick={handleScheduleFollowUp} disabled={!fuDate}
+                className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                Schedule &amp; Remind
+              </button>
+              <button onClick={()=>setShowFollowUp(false)}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
+            </div>
+          </div>
+        )}
+
+        {/* Parts reminder */}
+        {showParts && (
+          <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-800">Parts Tracking Reminder</p>
+            <input value={partsDesc} onChange={e=>setPartsDesc(e.target.value)}
+              placeholder="e.g. Water pump filter, replacement faucet…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-amber-700 font-medium whitespace-nowrap">ETA / Check by:</label>
+              <input type="date" value={partsETA} onChange={e=>setPartsETA(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleAddPartsReminder} disabled={!partsDesc || !partsETA}
+                className="flex-1 bg-amber-500 text-white text-sm font-semibold py-2 rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-colors">
+                Add Reminder
+              </button>
+              <button onClick={()=>setShowParts(false)}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+          <button onClick={onEdit} className="border border-gray-200 text-gray-700 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">{t('common.edit')}</button>
+          <button onClick={()=>setAddingWork(true)} className="border border-blue-200 text-blue-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors">{t('jobs.addWork')}</button>
+          <button onClick={()=>{ setShowFollowUp(f=>!f); setShowParts(false); }}
+            className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showFollowUp?'border-indigo-300 bg-indigo-50 text-indigo-700':'border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}>
+            📅 Follow-up
+          </button>
+          <button onClick={()=>{ setShowParts(p=>!p); setShowFollowUp(false); }}
+            className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showParts?'border-amber-300 bg-amber-50 text-amber-700':'border-amber-200 text-amber-600 hover:bg-amber-50'}`}>
+            📦 Parts
+          </button>
+          {nextLabel && NEXT_MAP[job.status] && (
+            <button onClick={onAdvance} className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors min-w-[120px]">{nextLabel}</button>
+          )}
+        </div>
+      </Modal>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={() => setLightbox(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Job photo" className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()}/>
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center text-xl transition-colors">×</button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -485,6 +637,7 @@ export default function JobsPage() {
   const t = useT();
   const jobs = data?.jobs ?? [];
   const pricebook = data?.pricebook ?? [];
+  const reminders = data?.reminders ?? [];
   const customerNames = [...new Set((data?.customers??[]).map(c=>c.name))];
 
   const FILTER_TABS = [
@@ -581,6 +734,45 @@ export default function JobsPage() {
     setSelected(updated);
   }, [data, updateData]);
 
+  const updateJob = useCallback((updated: Job) => {
+    if (!data) return;
+    updateData({...data, jobs: data.jobs.map(j => j.id === updated.id ? updated : j)});
+    setSelected(updated);
+  }, [data, updateData]);
+
+  const scheduleFollowUp = useCallback((job: Job, date: string, time: string, notes: string) => {
+    if (!data) return;
+    const followUpJob: Job = {
+      id: uid(), title: `Follow-up: ${job.title}`, customer: job.customer,
+      status: 'scheduled', date, time, address: job.address,
+      technician: job.technician, estimate: 0, amount: 0,
+      notes: notes || `Follow-up visit for ${job.title}`, items: [], photos: [],
+    };
+    const reminder: Reminder = {
+      id: uid(), jobId: followUpJob.id, type: 'followup',
+      message: `Follow-up: ${job.customer} — ${job.title}`,
+      dueDate: date, done: false,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    updateData({
+      ...data,
+      jobs: [followUpJob, ...data.jobs],
+      reminders: [...(data.reminders ?? []), reminder],
+    });
+  }, [data, updateData]);
+
+  const addReminder = useCallback((job: Job, r: Omit<Reminder,'id'|'jobId'|'createdAt'>) => {
+    if (!data) return;
+    const reminder: Reminder = {
+      ...r, id: uid(), jobId: job.id,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    updateData({...data, reminders: [...(data.reminders ?? []), reminder]});
+  }, [data, updateData]);
+
+  // Suppress unused import warning for useRef
+  const _ref = useRef(null); void _ref;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -641,6 +833,8 @@ export default function JobsPage() {
                 const jobId = `#${1000+jobs.indexOf(job)}`;
                 const badge = STATUS_CLS[job.status]??'bg-gray-100 text-gray-700';
                 const next = NEXT_STATUS[job.status];
+                const hasPhotos = job.photos.length > 0;
+                const jobReminderCount = reminders.filter(r => r.jobId === job.id && !r.done).length;
                 return (
                   <tr key={job.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-4 font-semibold text-gray-700 whitespace-nowrap">{jobId}</td>
@@ -659,7 +853,13 @@ export default function JobsPage() {
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${badge}`}>{STATUS_LABEL[job.status]??job.status}</span>
                     </td>
                     <td className="px-4 py-4 text-gray-600 max-w-[160px]"><span className="truncate block">{job.address.split(',').slice(0,2).join(',')}</span></td>
-                    <td className="px-4 py-4 font-semibold text-gray-900 whitespace-nowrap">${job.amount.toFixed(2)}</td>
+                    <td className="px-4 py-4 font-semibold text-gray-900 whitespace-nowrap">
+                      ${job.amount.toFixed(2)}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {hasPhotos && <span className="text-xs text-gray-400">📷 {job.photos.length}</span>}
+                        {jobReminderCount > 0 && <span className="text-xs text-amber-500">🔔 {jobReminderCount}</span>}
+                      </div>
+                    </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <button onClick={()=>{setSelected(job);setModal('view');}}
@@ -692,29 +892,26 @@ export default function JobsPage() {
       </div>
 
       {(modal==='create'||modal==='estimate') && (
-        <JobFormModal
-          defaultStatus={modal==='estimate'?'estimate':'scheduled'}
-          customers={customerNames}
-          pricebook={pricebook}
-          pastJobs={jobs}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])}
-          onClose={()=>setModal('none')}/>
+        <JobFormModal defaultStatus={modal==='estimate'?'estimate':'scheduled'} customers={customerNames}
+          pricebook={pricebook} pastJobs={jobs}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])} onClose={()=>setModal('none')}/>
       )}
       {modal==='edit' && selected && (
-        <JobFormModal
-          initial={selected}
-          customers={customerNames}
-          pricebook={pricebook}
-          pastJobs={jobs.filter(j => j.id !== selected.id)}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)}
-          onClose={()=>setModal('none')}/>
+        <JobFormModal initial={selected} customers={customerNames}
+          pricebook={pricebook} pastJobs={jobs.filter(j=>j.id!==selected.id)}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)} onClose={()=>setModal('none')}/>
       )}
       {modal==='view' && selected && (
-        <JobDetailModal job={selected}
+        <JobDetailModal
+          job={selected}
           customerPhone={(data?.customers??[]).find(c=>c.name===selected.customer)?.phone??''}
+          reminders={reminders}
           onEdit={()=>setModal('edit')}
           onAdvance={()=>advanceStatus(selected)}
           onAddWork={item=>addWorkItem(selected,item)}
+          onUpdateJob={updateJob}
+          onScheduleFollowUp={scheduleFollowUp}
+          onAddReminder={r=>addReminder(selected,r)}
           onClose={()=>{setModal('none');setSelected(null);}}/>
       )}
     </div>

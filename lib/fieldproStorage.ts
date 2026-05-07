@@ -71,12 +71,23 @@ export interface PricebookItem {
   timesUsed: number;
 }
 
+export interface Reminder {
+  id: string;
+  jobId: string;
+  type: 'followup' | 'parts' | 'custom';
+  message: string;
+  dueDate: string;
+  done: boolean;
+  createdAt: string;
+}
+
 export interface FieldProData {
   jobs: Job[];
   customers: Customer[];
   invoices: Invoice[];
   appointments: Appointment[];
   pricebook: PricebookItem[];
+  reminders: Reminder[];
 }
 
 export interface UserAccount {
@@ -223,5 +234,6 @@ export function getDefaultData(): FieldProData {
       { id: uid(), category: 'Plumbing',  name: 'Drain Cleaning',        description: 'Clear blocked drain line',                unitPrice: 95,  unit: 'flat',     timesUsed: 0 },
       { id: uid(), category: 'Electrical','name': 'Outlet Replacement',  description: 'Replace damaged electrical outlet',       unitPrice: 85,  unit: 'flat',     timesUsed: 0 },
     ],
+    reminders: [],
   };
 }

@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState, useRef, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthProvider';
 import { useLanguage, LANGUAGES } from '../lib/i18n';
 import VoiceAssistant from './VoiceAssistant';
@@ -41,13 +41,33 @@ function XIcon() {
   );
 }
 
+function BellIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+    </svg>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const router = useRouter();
+  const { user, data, logout } = useAuth();
   const { lang, setLang, t } = useLanguage();
   const [langOpen, setLangOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+
+  const upcomingReminders = useMemo(() => {
+    if (!data?.reminders) return 0;
+    const now = new Date();
+    const in7 = new Date(now.getTime() + 7 * 86_400_000);
+    return data.reminders.filter(r => {
+      if (r.done) return false;
+      const d = new Date(r.dueDate);
+      return d >= now && d <= in7;
+    }).length;
+  }, [data?.reminders]);
 
   const navItems = [
     { name: t('nav.dashboard'), href: '/' },
@@ -131,8 +151,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               })}
             </nav>
 
-            {/* Right: Language + User */}
+            {/* Right: Bell + Language + User */}
             <div className="flex items-center gap-3">
+              {/* Bell notification */}
+              <button
+                onClick={() => router.push('/jobs')}
+                className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+                aria-label="Reminders"
+              >
+                <BellIcon />
+                {upcomingReminders > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 leading-none">
+                    {upcomingReminders > 9 ? '9+' : upcomingReminders}
+                  </span>
+                )}
+              </button>
               {/* Language Picker */}
               <div className="relative" ref={langRef}>
                 <button
