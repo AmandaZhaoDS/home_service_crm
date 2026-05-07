@@ -1,10 +1,13 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
 import { Job, JobStatus, JobItem, PricebookItem } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
+
+const RouteMap = dynamic(() => import('../components/RouteMap'), { ssr: false });
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
@@ -152,8 +155,43 @@ function NewEstimateModal({ customers, onSave, onClose }: {
   );
 }
 
-function JobDetailPanel({ job, onAddWork, onNewEstimate, onEdit, onDelete }: {
-  job: Job; onAddWork: () => void; onNewEstimate: () => void; onEdit: () => void; onDelete: () => void;
+function AddressCard({ address }: { address: string }) {
+  const [showMap, setShowMap] = useState(false);
+  const encoded = encodeURIComponent(address);
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-2">
+        <p className="text-sm text-gray-500 flex-1">{address}</p>
+        <div className="flex gap-1 flex-shrink-0">
+          <button onClick={() => setShowMap(m => !m)}
+            className={`text-xs font-semibold px-2 py-1 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            Map
+          </button>
+          <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
+            className="text-xs font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+            Street View
+          </a>
+          <a href={`https://maps.google.com?q=${encoded}`} target="_blank" rel="noreferrer"
+            className="text-xs font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+            ↗
+          </a>
+        </div>
+      </div>
+      {showMap && (
+        <div className="mt-2 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+          <iframe
+            title="address-map"
+            src={`https://maps.google.com/maps?q=${encoded}&output=embed&z=16`}
+            width="100%" height="220" style={{ border: 0, display: 'block' }}
+            loading="lazy" allowFullScreen/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, onDelete }: {
+  job: Job; customerPhone: string; onAddWork: () => void; onNewEstimate: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const t = useT();
   const total = job.items.reduce((s, i) => s + i.amount * (i.quantity ?? 1), 0);
@@ -174,11 +212,18 @@ function JobDetailPanel({ job, onAddWork, onNewEstimate, onEdit, onDelete }: {
       <div className="flex items-start justify-between mb-1">
         <h2 className="text-xl font-bold text-gray-900">{job.customer}</h2>
         <div className="flex items-center gap-2 text-gray-400">
-          <button className="hover:text-blue-600 transition-colors" title="Call customer">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          {customerPhone ? (
+            <a href={`tel:${customerPhone.replace(/\D/g, '')}`}
+              className="hover:text-blue-600 transition-colors" title={`Call ${customerPhone}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+              </svg>
+            </a>
+          ) : (
+            <svg className="w-5 h-5 opacity-30" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
             </svg>
-          </button>
+          )}
           <div className="relative" ref={moreRef}>
             <button onClick={() => setMoreOpen(o => !o)} className="hover:text-gray-700 transition-colors">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -197,7 +242,7 @@ function JobDetailPanel({ job, onAddWork, onNewEstimate, onEdit, onDelete }: {
         </div>
       </div>
 
-      <p className="text-sm text-gray-500 mb-3">{job.address}</p>
+      <AddressCard address={job.address}/>
 
       <div className="flex items-center gap-2 mb-4">
         <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -433,6 +478,7 @@ export default function Home() {
           {selectedJob ? (
             <JobDetailPanel
               job={selectedJob}
+              customerPhone={(data?.customers ?? []).find(c => c.name === selectedJob.customer)?.phone ?? ''}
               onAddWork={() => setModal('addWork')}
               onNewEstimate={() => setModal('newEstimate')}
               onEdit={() => setModal('editJob')}
@@ -471,6 +517,27 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Daily Route Map */}
+      {todayJobs.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-gray-900">{t('dash.todayJobs')} — Route</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Stops in order · Travel times via OpenStreetMap</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {todayJobs.map((j, i) => (
+                <div key={j.id} className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
+                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0">{i + 1}</span>
+                  <span className="truncate max-w-[80px]">{j.customer.split(' ')[0]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <RouteMap jobs={todayJobs}/>
+        </div>
+      )}
 
       {recentActivities.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm p-5">

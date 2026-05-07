@@ -358,8 +358,8 @@ function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, 
 
 // ─── Job Detail Modal ─────────────────────────────────────────────────────────
 
-function JobDetailModal({ job, onEdit, onAdvance, onAddWork, onClose }: {
-  job:Job; onEdit:()=>void; onAdvance:()=>void;
+function JobDetailModal({ job, customerPhone, onEdit, onAdvance, onAddWork, onClose }: {
+  job:Job; customerPhone:string; onEdit:()=>void; onAdvance:()=>void;
   onAddWork:(item:{label:string;amount:number;quantity:number})=>void; onClose:()=>void;
 }) {
   const t = useT();
@@ -376,16 +376,49 @@ function JobDetailModal({ job, onEdit, onAdvance, onAddWork, onClose }: {
   };
   const nextLabel = NEXT_STATUS_LABEL[job.status];
 
+  const [showMap, setShowMap] = useState(false);
+  const encoded = encodeURIComponent(job.address);
+
   return (
     <Modal title={t('jobs.detailTitle')} onClose={onClose} size="lg">
       <div className="flex items-start justify-between mb-2">
         <div>
           <h3 className="text-xl font-bold text-gray-900">{job.customer}</h3>
-          <p className="text-sm text-gray-500">{job.address}</p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className="text-sm text-gray-500">{job.address}</p>
+            <div className="flex gap-1">
+              <button onClick={() => setShowMap(m => !m)}
+                className={`text-xs font-semibold px-2 py-0.5 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                Map
+              </button>
+              <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
+                className="text-xs font-semibold px-2 py-0.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+                Street View
+              </a>
+            </div>
+          </div>
+          {showMap && (
+            <div className="mt-2 rounded-xl overflow-hidden border border-gray-100">
+              <iframe title="map" src={`https://maps.google.com/maps?q=${encoded}&output=embed&z=16`}
+                width="100%" height="200" style={{ border: 0, display: 'block' }} loading="lazy" allowFullScreen/>
+            </div>
+          )}
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold flex-shrink-0 ml-4 ${STATUS_CLS[job.status]??'bg-gray-100 text-gray-700'}`}>
-          {job.status.replace('-',' ')}
-        </span>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+          {customerPhone && (
+            <a href={`tel:${customerPhone.replace(/\D/g, '')}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 text-xs font-semibold transition-colors"
+              title={`Call ${customerPhone}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+              </svg>
+              {customerPhone}
+            </a>
+          )}
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_CLS[job.status]??'bg-gray-100 text-gray-700'}`}>
+            {job.status.replace('-',' ')}
+          </span>
+        </div>
       </div>
       <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
         <span className="font-semibold text-gray-800">{job.title}</span>
@@ -678,6 +711,7 @@ export default function JobsPage() {
       )}
       {modal==='view' && selected && (
         <JobDetailModal job={selected}
+          customerPhone={(data?.customers??[]).find(c=>c.name===selected.customer)?.phone??''}
           onEdit={()=>setModal('edit')}
           onAdvance={()=>advanceStatus(selected)}
           onAddWork={item=>addWorkItem(selected,item)}
