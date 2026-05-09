@@ -3,8 +3,9 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Invoice, InvoiceStatus, PricebookItem, Job } from '../../lib/fieldproStorage';
+import { Invoice, InvoiceStatus, PricebookItem, Job, Customer } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
+import CustomerSearch from '../../components/CustomerSearch';
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
@@ -317,8 +318,8 @@ function PricebookView({ pricebook, jobs, onUpdate }: {
 
 interface InvForm { customer:string; jobTitle:string; amount:number; status:InvoiceStatus; issueDate:string; dueDate:string; description:string; }
 
-function InvoiceFormModal({ initial, customers, onSave, onClose }: {
-  initial?: Invoice; customers:string[]; onSave:(f:InvForm)=>void; onClose:()=>void;
+function InvoiceFormModal({ initial, allCustomers, onSave, onClose }: {
+  initial?: Invoice; allCustomers:Customer[]; onSave:(f:InvForm)=>void; onClose:()=>void;
 }) {
   const t = useT();
   const [f, setF] = useState<InvForm>(initial ? {
@@ -339,8 +340,11 @@ function InvoiceFormModal({ initial, customers, onSave, onClose }: {
       <div className="space-y-4">
         <div>
           <label className={LABEL_CLS}>{t('inv.customer')}</label>
-          <input className={INPUT_CLS} list="inv-cust-list" value={f.customer} onChange={e=>set('customer',e.target.value)}/>
-          <datalist id="inv-cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist>
+          <CustomerSearch
+            customers={allCustomers} value={f.customer}
+            onChange={v => set('customer', v)}
+            placeholder="Search customer…"
+          />
         </div>
         <div>
           <label className={LABEL_CLS}>{t('inv.jobService')}</label>
@@ -443,7 +447,7 @@ export default function InvoicesPage() {
   const invoices = data?.invoices ?? [];
   const pricebook = data?.pricebook ?? [];
   const jobs = data?.jobs ?? [];
-  const customerNames = [...new Set((data?.customers??[]).map(c=>c.name))];
+  const allCustomers = data?.customers ?? [];
 
   const [view, setView] = useState<'invoices'|'pricebook'>('invoices');
   const [activeTab, setActiveTab] = useState('all');
@@ -622,8 +626,8 @@ export default function InvoicesPage() {
         </>
       )}
 
-      {modal==='create' && <InvoiceFormModal customers={customerNames} onSave={f=>saveInvoice(f)} onClose={()=>setModal('none')}/>}
-      {modal==='edit' && selected && <InvoiceFormModal initial={selected} customers={customerNames} onSave={f=>saveInvoice(f,selected.id)} onClose={()=>setModal('none')}/>}
+      {modal==='create' && <InvoiceFormModal allCustomers={allCustomers} onSave={f=>saveInvoice(f)} onClose={()=>setModal('none')}/>}
+      {modal==='edit' && selected && <InvoiceFormModal initial={selected} allCustomers={allCustomers} onSave={f=>saveInvoice(f,selected.id)} onClose={()=>setModal('none')}/>}
       {modal==='view' && selected && (
         <InvoiceDetailModal invoice={selected}
           onEdit={()=>setModal('edit')}

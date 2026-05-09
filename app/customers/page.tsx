@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Customer } from '../../lib/fieldproStorage';
+import { Customer, CustomerAttachment } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
 
 const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
@@ -103,14 +103,36 @@ function CustomerFormModal({ initial, onSave, onClose }: {
   );
 }
 
-function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
+function CustomerDetailModal({ customer, jobs, onEdit, onUpdate, onClose }: {
   customer: Customer;
   jobs: { title:string; status:string; date:string; amount:number }[];
-  onEdit: ()=>void; onClose: ()=>void;
+  onEdit: ()=>void; onUpdate: (c: Customer) => void; onClose: ()=>void;
 }) {
   const t = useT();
   const totalSpent = jobs.filter(j=>j.status==='paid').reduce((s,j)=>s+j.amount,0);
   const encoded = customer.address ? encodeURIComponent(customer.address) : '';
+  const attachments = customer.attachments ?? [];
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    const newAttachments: CustomerAttachment[] = await Promise.all(files.map(file =>
+      new Promise<CustomerAttachment>(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          id: uid(), name: file.name, data: reader.result as string,
+          uploadedAt: new Date().toISOString(),
+        });
+        reader.readAsDataURL(file);
+      })
+    ));
+    onUpdate({ ...customer, attachments: [...attachments, ...newAttachments] });
+    e.target.value = '';
+  };
+
+  const removeAttachment = (id: string) => {
+    onUpdate({ ...customer, attachments: attachments.filter(a => a.id !== id) });
+  };
 
   return (
     <Modal title={t('cust.details')} onClose={onClose} size="md">
@@ -181,6 +203,43 @@ function CustomerDetailModal({ customer, jobs, onEdit, onClose }: {
             </div>
           </div>
         )}
+
+        {/* Attachments */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Attachments ({attachments.length})</p>
+            <label className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer transition-colors">
+              + Upload
+              <input type="file" multiple className="hidden" onChange={handleFileUpload}/>
+            </label>
+          </div>
+          {attachments.length > 0 ? (
+            <div className="space-y-1.5">
+              {attachments.map(a => (
+                <div key={a.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                  <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                  </svg>
+                  <a href={a.data} download={a.name} className="flex-1 text-xs font-medium text-gray-800 truncate hover:text-blue-600 transition-colors">{a.name}</a>
+                  <span className="text-xs text-gray-400 flex-shrink-0">{new Date(a.uploadedAt).toLocaleDateString()}</span>
+                  <button onClick={() => removeAttachment(a.id)} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <label className="flex items-center justify-center gap-2 h-14 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs cursor-pointer hover:border-blue-300 hover:text-blue-500 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+              </svg>
+              Upload files (PDFs, photos, contracts…)
+              <input type="file" multiple className="hidden" onChange={handleFileUpload}/>
+            </label>
+          )}
+        </div>
 
         <button onClick={onEdit} className="w-full border border-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
           {t('cust.edit')}
@@ -309,6 +368,12 @@ export default function CustomersPage() {
     if (!data || !confirm(t('cust.deleteConfirm'))) return;
     updateData({...data, customers:data.customers.filter(c=>c.id!==id)});
     setModal('none'); setSelected(null);
+  };
+
+  const updateCustomer = (c: Customer) => {
+    if (!data) return;
+    updateData({ ...data, customers: data.customers.map(x => x.id === c.id ? c : x) });
+    setSelected(c);
   };
 
   const totalRevenue = customers.reduce((s,c)=>{
@@ -482,6 +547,7 @@ export default function CustomersPage() {
           customer={selected}
           jobs={jobs.filter(j=>j.customer===selected.name).map(j=>({title:j.title,status:j.status,date:j.date,amount:j.amount}))}
           onEdit={()=>setModal('edit')}
+          onUpdate={updateCustomer}
           onClose={()=>{setModal('none');setSelected(null);}}/>
       )}
       {showImportModal && (

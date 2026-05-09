@@ -74,6 +74,7 @@ export default function VoiceAssistant() {
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [chatInput, setChatInput] = useState('');
   const [result, setResult] = useState<VoiceResult | null>(null);
   const [supported, setSupported] = useState(true);
 
@@ -407,8 +408,35 @@ export default function VoiceAssistant() {
                 </div>
               )}
 
+              {/* Text chat input */}
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  const text = chatInput.trim();
+                  if (!text || processing) return;
+                  setChatInput('');
+                  processVoice(text);
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white"
+                  placeholder={t('voice.typeHint')}
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  disabled={processing}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || processing}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors flex-shrink-0"
+                >
+                  {t('voice.send')}
+                </button>
+              </form>
+
               {/* Hint */}
-              {!transcript && !result && !processing && (
+              {!transcript && !result && !processing && !chatInput && (
                 <p className="text-xs text-gray-400 text-center leading-relaxed">{t('voice.hint')}</p>
               )}
             </div>

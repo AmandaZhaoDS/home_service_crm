@@ -22,7 +22,7 @@ export const SPEECH_LANG: Record<Lang,string> = {
 
 const T = {
 en: {
-  'nav.dashboard':'Dashboard','nav.jobs':'Jobs','nav.customers':'Customers','nav.schedule':'Schedule','nav.invoices':'Invoices',
+  'nav.dashboard':'Dashboard','nav.jobs':'Jobs','nav.customers':'Customers','nav.schedule':'Schedule','nav.invoices':'Invoices','nav.estimates':'Estimates',
   'nav.hi':'Hi','nav.role':'Technician',
   'common.save':'Save Changes','common.cancel':'Cancel','common.delete':'Delete','common.edit':'Edit','common.view':'View',
   'common.add':'Add','common.close':'Close','common.search':'Search','common.loading':'Loading...','common.noResults':'No results found.',
@@ -100,11 +100,15 @@ en: {
   'inv.createBtn':'Create Invoice','inv.saveBtn':'Save Changes',
   'inv.totalAmount':'Total Amount','inv.sendInvoice':'Send Invoice','inv.markPaid':'Mark as Paid',
   'inv.deleteConfirm':'Delete this invoice?',
+  'est.title':'Estimates','est.noEstimates':'No estimates found.','est.convertBtn':'Convert to Invoice',
+  'est.confirmConvert':'Convert this estimate to an invoice? The job status will be updated to Scheduled.',
+  'est.newEstimate':'+ New Estimate','est.editEstimate':'Edit Estimate',
   'voice.title':'AI Voice Assistant','voice.tap':'Tap to speak','voice.listening':'Listening...','voice.processing':'Processing...',
   'voice.result':'Voice Result','voice.noSupport':'Voice not supported in this browser',
   'voice.customers':'Matching Customers','voice.jobs':'Matching Jobs','voice.note':'Note Added',
   'voice.hint':'Try: "Find customer Jane" or "Search HVAC jobs"',
   'voice.close':'Close','voice.clear':'Clear','voice.noJobFound':'No matching job found','voice.lang':'Voice:',
+  'voice.typeHint':'Or type a command…','voice.send':'Send',
   'pb.title':'Pricebook','pb.addItem':'+ Add Item','pb.generate':'⚡ Auto-generate','pb.genTitle':'Generate from Job History',
   'pb.name':'Item Name *','pb.category':'Category','pb.price':'Unit Price ($) *','pb.unit':'Unit',
   'pb.unitFlat':'Flat rate','pb.unitHour':'Per hour','pb.unitEach':'Per unit','pb.used':'used',
