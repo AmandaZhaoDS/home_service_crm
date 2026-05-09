@@ -11,21 +11,24 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      router.replace('/');
-    }
+    if (user) router.replace('/');
   }, [user, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setPending(true);
     const result = await login(email, password);
     if (!result.success) {
       setError(result.message || 'Login failed.');
+      setPending(false);
       return;
     }
-    router.push('/');
+    // login() already set a placeholder user; the useEffect above will navigate
+    // to '/' once the user state is confirmed — no manual router.push needed.
   };
 
   return (
@@ -63,9 +66,10 @@ export default function LoginPage() {
 
         <button
           type="submit"
-          className="w-full rounded-3xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+          disabled={pending}
+          className="w-full rounded-3xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
         >
-          Sign In
+          {pending ? 'Signing in…' : 'Sign In'}
         </button>
       </form>
 

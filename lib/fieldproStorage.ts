@@ -25,6 +25,13 @@ export interface Job {
   photos: string[];
 }
 
+export interface CustomerAttachment {
+  id: string;
+  name: string;
+  data: string;
+  uploadedAt: string;
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -34,6 +41,7 @@ export interface Customer {
   totalJobs: number;
   totalSpent: number;
   lastService: string;
+  attachments?: CustomerAttachment[];
 }
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
@@ -112,8 +120,8 @@ export function getDefaultData(): FieldProData {
     jobs: [
       {
         id: uid(),
-        title: 'Kitchen Sink Repair',
-        customer: 'Jane Smith',
+        title: '[Sample] Kitchen Sink Repair',
+        customer: '[Sample] Jane Smith',
         status: 'on-site',
         date: today,
         time: '09:00 AM',
@@ -131,8 +139,8 @@ export function getDefaultData(): FieldProData {
       },
       {
         id: uid(),
-        title: 'Toilet Installation',
-        customer: 'Mike Johnson',
+        title: '[Sample] Toilet Installation',
+        customer: '[Sample] Mike Johnson',
         status: 'scheduled',
         date: tomorrow,
         time: '11:00 AM',
@@ -149,8 +157,8 @@ export function getDefaultData(): FieldProData {
       },
       {
         id: uid(),
-        title: 'Water Heater Service',
-        customer: 'Emily Davis',
+        title: '[Sample] Water Heater Service',
+        customer: '[Sample] Emily Davis',
         status: 'estimate',
         date: dayAfter,
         time: '02:00 PM',
@@ -170,7 +178,7 @@ export function getDefaultData(): FieldProData {
     customers: [
       {
         id: uid(),
-        name: 'Jane Smith',
+        name: '[Sample] Jane Smith',
         email: 'jane.smith@example.com',
         phone: '(555) 123-4567',
         address: '123 Main St, San Jose, CA 95123',
@@ -180,7 +188,7 @@ export function getDefaultData(): FieldProData {
       },
       {
         id: uid(),
-        name: 'Mike Johnson',
+        name: '[Sample] Mike Johnson',
         email: 'mike.johnson@example.com',
         phone: '(555) 234-5678',
         address: '456 Oak St, Sunnyvale, CA',
@@ -190,7 +198,7 @@ export function getDefaultData(): FieldProData {
       },
       {
         id: uid(),
-        name: 'Emily Davis',
+        name: '[Sample] Emily Davis',
         email: 'emily.davis@example.com',
         phone: '(555) 345-6789',
         address: '789 Elm St, Santa Clara, CA',
@@ -203,8 +211,8 @@ export function getDefaultData(): FieldProData {
       {
         id: uid(),
         invoiceNumber: 'INV-001',
-        customer: 'Jane Smith',
-        jobTitle: 'Kitchen Sink Repair',
+        customer: '[Sample] Jane Smith',
+        jobTitle: '[Sample] Kitchen Sink Repair',
         amount: 275,
         status: 'sent',
         issueDate: today,
@@ -215,8 +223,8 @@ export function getDefaultData(): FieldProData {
     appointments: [
       {
         id: uid(),
-        title: 'Kitchen Sink Repair',
-        customer: 'Jane Smith',
+        title: '[Sample] Kitchen Sink Repair',
+        customer: '[Sample] Jane Smith',
         date: today,
         time: '09:00 AM',
         duration: '2 hrs',

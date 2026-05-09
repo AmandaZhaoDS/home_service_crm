@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { FieldProData, UserAccount, getDefaultData } from '../lib/fieldproStorage';
 
@@ -36,6 +36,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserAccount | null>(null);
   const [data, setData] = useState<FieldProData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Tracks when the user just registered so a SIGNED_OUT event (e.g. from an
+  // unconfirmed email flow) doesn't immediately evict the manually-set user.
+  const justRegistered = useRef(false);
 
   useEffect(() => {
     // INITIAL_SESSION fires on the next tick (much faster than a getSession() roundtrip).
@@ -55,8 +58,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setData(null);
+        // Don't clear a manually-set user immediately after registration
+        // (some Supabase setups fire SIGNED_OUT for unconfirmed-email accounts).
+        if (!justRegistered.current) {
+          setUser(null);
+          setData(null);
+        }
         if (!initialSessionFired) { initialSessionFired = true; setLoading(false); }
         return;
       }
@@ -123,8 +130,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
+    // Set a placeholder immediately so router.push('/') in the login page doesn't
+    // race against the SIGNED_IN event handler and get bounced back to /login.
+    if (authData.user) {
+      setUser(prev => prev ?? {
+        id: authData.user!.id,
+        name: authData.user!.email!.split('@')[0],
+        email: authData.user!.email!,
+      });
+    }
     return { success: true };
   };
 
@@ -140,12 +156,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.from('user_crm_data').insert({ user_id: userId, data: defaultData }),
     ]);
 
+    // Protect the manually-set user from a spurious SIGNED_OUT that some Supabase
+    // configurations fire when email confirmation is pending.
+    justRegistered.current = true;
+    setTimeout(() => { justRegistered.current = false; }, 30_000);
+
     setUser({ id: userId, name, email });
     setData(defaultData);
     return { success: true };
   };
 
   const logout = () => {
+    // Clear state immediately for instant navigation; signOut cleans up the session.
+    setUser(null);
+    setData(null);
     supabase.auth.signOut();
   };
 

@@ -3,8 +3,9 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem } from '../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Customer } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
+import CustomerSearch from '../components/CustomerSearch';
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
@@ -67,23 +68,39 @@ function AddWorkModal({ pricebook, onSave, onClose }: {
 }) {
   const t = useT();
   const [wi, setWi] = useState({ label: '', amount: 0, quantity: 1 });
+  const [pbSearch, setPbSearch] = useState('');
   const valid = wi.label.trim();
+
+  const filteredPb = useMemo(() => {
+    if (!pbSearch.trim()) return pricebook;
+    const q = pbSearch.toLowerCase();
+    return pricebook.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+  }, [pricebook, pbSearch]);
+
   return (
     <Modal title={t('dash.addWorkTitle')} onClose={onClose} size="sm">
       <div className="space-y-4">
         {pricebook.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t('pb.fromPb')}</p>
-            <div className="flex flex-wrap gap-1.5 mb-1">
-              {pricebook.slice(0, 6).map(item => (
+            <input
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white mb-2"
+              placeholder={t('pb.searchPb')}
+              value={pbSearch}
+              onChange={e => setPbSearch(e.target.value)}
+            />
+            <div className="max-h-36 overflow-y-auto space-y-1">
+              {filteredPb.map(item => (
                 <button key={item.id}
                   onClick={() => onSave({ label: item.name, amount: item.unitPrice, quantity: 1 })}
-                  className="text-xs px-3 py-1.5 rounded-full border border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors">
-                  {item.name} · ${item.unitPrice}
+                  className="w-full text-left flex items-center justify-between px-3 py-2 rounded-xl border border-gray-100 text-sm hover:border-blue-200 hover:bg-blue-50 transition-colors">
+                  <span className="text-gray-800 font-medium truncate">{item.name}</span>
+                  <span className="text-blue-600 font-semibold flex-shrink-0 ml-2">${item.unitPrice}</span>
                 </button>
               ))}
+              {filteredPb.length === 0 && <p className="text-xs text-gray-400 text-center py-2">{t('common.noResults')}</p>}
             </div>
-            <div className="border-t border-gray-100 pt-3"/>
+            <div className="border-t border-gray-100 pt-3 mt-2"/>
           </div>
         )}
         <div>
@@ -114,8 +131,9 @@ function AddWorkModal({ pricebook, onSave, onClose }: {
 
 interface EstimateForm { title: string; customer: string; date: string; time: string; address: string; notes: string; estimate: number; }
 
-function NewEstimateModal({ customers, onSave, onClose }: {
-  customers: string[]; onSave: (f: EstimateForm) => void; onClose: () => void;
+function NewEstimateModal({ allCustomers, onSave, onNewCustomer, onClose }: {
+  allCustomers: Customer[]; onSave: (f: EstimateForm) => void;
+  onNewCustomer: (c: Customer) => void; onClose: () => void;
 }) {
   const t = useT();
   const [f, setF] = useState<EstimateForm>({
@@ -134,8 +152,12 @@ function NewEstimateModal({ customers, onSave, onClose }: {
           </div>
           <div>
             <label className={LABEL_CLS}>{t('dash.customer')}</label>
-            <input className={INPUT_CLS} list="cust-est" value={f.customer} onChange={e => set('customer', e.target.value)}/>
-            <datalist id="cust-est">{customers.map(c => <option key={c} value={c}/>)}</datalist>
+            <CustomerSearch
+              customers={allCustomers} value={f.customer}
+              onChange={v => set('customer', v)}
+              onNewCustomer={c => { onNewCustomer(c); set('customer', c.name); }}
+              placeholder="Search or add customer…"
+            />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -316,8 +338,9 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
 
 interface EditForm { title: string; customer: string; date: string; time: string; address: string; notes: string; photos: string[]; }
 
-function EditJobModal({ job, customers, onSave, onClose }: {
-  job: Job; customers: string[]; onSave: (f: EditForm) => void; onClose: () => void;
+function EditJobModal({ job, allCustomers, onSave, onNewCustomer, onClose }: {
+  job: Job; allCustomers: Customer[]; onSave: (f: EditForm) => void;
+  onNewCustomer: (c: Customer) => void; onClose: () => void;
 }) {
   const t = useT();
   const [f, setF] = useState<EditForm>({
@@ -350,8 +373,12 @@ function EditJobModal({ job, customers, onSave, onClose }: {
             </div>
             <div>
               <label className={LABEL_CLS}>{t('dash.customer')}</label>
-              <input className={INPUT_CLS} list="cust-edit" value={f.customer} onChange={e => set('customer', e.target.value)}/>
-              <datalist id="cust-edit">{customers.map(c => <option key={c} value={c}/>)}</datalist>
+              <CustomerSearch
+                customers={allCustomers} value={f.customer}
+                onChange={v => set('customer', v)}
+                onNewCustomer={c => { onNewCustomer(c); set('customer', c.name); }}
+                placeholder="Search or add customer…"
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -443,8 +470,13 @@ export default function Home() {
   const { data, updateData } = useAuth();
   const t = useT();
   const jobs = data?.jobs ?? [];
-  const customerNames = [...new Set((data?.customers ?? []).map(c => c.name))];
+  const allCustomers = data?.customers ?? [];
   const today = new Date().toISOString().split('T')[0];
+
+  const addCustomer = useCallback((c: Customer) => {
+    if (!data) return;
+    updateData({ ...data, customers: [c, ...data.customers] });
+  }, [data, updateData]);
 
   const STATUS_BADGE_LABEL: Record<JobStatus,string> = {
     estimate: t('status.estimate'), scheduled: t('status.scheduled'), 'on-site': t('status.onSite'),
@@ -550,7 +582,9 @@ export default function Home() {
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900 text-sm truncate">{job.customer}</p>
                         <p className="text-xs text-gray-500 truncate">{job.title}</p>
-                        <p className="text-xs text-gray-400">{job.time}</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(job.date+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})} · {job.time}
+                        </p>
                       </div>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${STATUS_BADGE_CLS[job.status]}`}>
                         {STATUS_BADGE_LABEL[job.status]}
@@ -631,10 +665,10 @@ export default function Home() {
         <AddWorkModal pricebook={data?.pricebook ?? []} onSave={addWorkItem} onClose={() => setModal('none')}/>
       )}
       {modal === 'newEstimate' && (
-        <NewEstimateModal customers={customerNames} onSave={saveEstimate} onClose={() => setModal('none')}/>
+        <NewEstimateModal allCustomers={allCustomers} onSave={saveEstimate} onNewCustomer={addCustomer} onClose={() => setModal('none')}/>
       )}
       {modal === 'editJob' && selectedJob && (
-        <EditJobModal job={selectedJob} customers={customerNames} onSave={saveEdit} onClose={() => setModal('none')}/>
+        <EditJobModal job={selectedJob} allCustomers={allCustomers} onSave={saveEdit} onNewCustomer={addCustomer} onClose={() => setModal('none')}/>
       )}
       {modal === 'confirmDelete' && selectedJob && (
         <Modal title={t('dash.deleteJob')} onClose={() => setModal('none')} size="sm">

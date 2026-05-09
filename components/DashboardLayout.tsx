@@ -74,6 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { name: t('nav.dashboard'), href: '/' },
     { name: t('nav.jobs'), href: '/jobs' },
+    { name: t('nav.estimates'), href: '/estimates' },
     { name: t('nav.customers'), href: '/customers' },
     { name: t('nav.schedule'), href: '/schedule' },
     { name: t('nav.invoices'), href: '/invoices' },

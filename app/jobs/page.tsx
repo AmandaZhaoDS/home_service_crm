@@ -3,8 +3,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem, Reminder } from '../../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Reminder, Customer } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
+import CustomerSearch from '../../components/CustomerSearch';
 
 const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
 function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[Math.abs(h)]; }
@@ -223,10 +224,10 @@ function jobToForm(j: Job): FormData {
 
 // ─── Job Form Modal ───────────────────────────────────────────────────────────
 
-function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, onSave, onClose }: {
-  initial?: Job; defaultStatus?: JobStatus; customers: string[];
+function JobFormModal({ initial, defaultStatus, allCustomers, pricebook, pastJobs, onSave, onNewCustomer, onClose }: {
+  initial?: Job; defaultStatus?: JobStatus; allCustomers: Customer[];
   pricebook: PricebookItem[]; pastJobs: Job[];
-  onSave:(f:FormData)=>void; onClose:()=>void;
+  onSave:(f:FormData)=>void; onNewCustomer:(c:Customer)=>void; onClose:()=>void;
 }) {
   const t = useT();
   const [f, setF] = useState<FormData>(initial ? jobToForm(initial) : blankForm(defaultStatus));
@@ -260,8 +261,13 @@ function JobFormModal({ initial, defaultStatus, customers, pricebook, pastJobs, 
             <div><label className={LABEL_CLS}>{t('jobs.jobTitle')}</label>
               <input className={INPUT_CLS} value={f.title} onChange={e=>set('title',e.target.value)} placeholder="e.g. Kitchen Sink Repair"/></div>
             <div><label className={LABEL_CLS}>{t('jobs.customer')}</label>
-              <input className={INPUT_CLS} list="cust-list" value={f.customer} onChange={e=>set('customer',e.target.value)}/>
-              <datalist id="cust-list">{customers.map(c=><option key={c} value={c}/>)}</datalist></div>
+              <CustomerSearch
+                customers={allCustomers}
+                value={f.customer}
+                onChange={v => set('customer', v)}
+                onNewCustomer={c => { onNewCustomer(c); set('customer', c.name); }}
+                placeholder="Search or add customer…"
+              /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className={LABEL_CLS}>{t('jobs.status')}</label>
@@ -660,7 +666,12 @@ export default function JobsPage() {
   const jobs = data?.jobs ?? [];
   const pricebook = data?.pricebook ?? [];
   const reminders = data?.reminders ?? [];
-  const customerNames = [...new Set((data?.customers??[]).map(c=>c.name))];
+  const allCustomers = data?.customers ?? [];
+
+  const addCustomer = useCallback((c: Customer) => {
+    if (!data) return;
+    updateData({ ...data, customers: [c, ...data.customers] });
+  }, [data, updateData]);
 
   const FILTER_TABS = [
     {key:'all',label:t('jobs.tabAll')},{key:'scheduled',label:t('jobs.tabScheduled')},
@@ -962,14 +973,16 @@ export default function JobsPage() {
       </div>
 
       {(modal==='create'||modal==='estimate') && (
-        <JobFormModal defaultStatus={modal==='estimate'?'estimate':'scheduled'} customers={customerNames}
-          pricebook={pricebook} pastJobs={jobs}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])} onClose={()=>setModal('none')}/>
+        <JobFormModal defaultStatus={modal==='estimate'?'estimate':'scheduled'}
+          allCustomers={allCustomers} pricebook={pricebook} pastJobs={jobs}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0])}
+          onNewCustomer={addCustomer} onClose={()=>setModal('none')}/>
       )}
       {modal==='edit' && selected && (
-        <JobFormModal initial={selected} customers={customerNames}
-          pricebook={pricebook} pastJobs={jobs.filter(j=>j.id!==selected.id)}
-          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)} onClose={()=>setModal('none')}/>
+        <JobFormModal initial={selected}
+          allCustomers={allCustomers} pricebook={pricebook} pastJobs={jobs.filter(j=>j.id!==selected.id)}
+          onSave={f=>saveJob(f as Parameters<typeof saveJob>[0], selected.id)}
+          onNewCustomer={addCustomer} onClose={()=>setModal('none')}/>
       )}
       {modal==='view' && selected && (
         <JobDetailModal
