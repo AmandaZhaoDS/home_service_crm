@@ -73,11 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resolved = true;
       clearTimeout(loadingTimerId);
       if (sess) {
+        // Show a minimal placeholder user immediately so any user-dependent
+        // rendering can start, but keep loading=true until CRM data arrives.
         setUser(prev => prev ?? { id: sess.id, name: sess.email.split('@')[0], email: sess.email });
-        setLoading(false);
         fetchUserRecord(sess.id, sess.email)
-          .then(record => { setUser(record.user); setData(record.data); })
-          .catch(() => {});
+          .then(record => { setUser(record.user); setData(record.data); setLoading(false); })
+          .catch(() => { setLoading(false); });
       } else {
         setLoading(false);
       }

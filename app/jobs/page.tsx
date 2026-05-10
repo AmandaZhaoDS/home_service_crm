@@ -363,6 +363,30 @@ function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, on
   const [showWiSugg, setShowWiSugg] = useState(false);
   const [showMap, setShowMap] = useState(false);
 
+  // Send estimate via SMS
+  const [sendingEstimate, setSendingEstimate] = useState(false);
+  const [estimateSent, setEstimateSent] = useState(false);
+  const handleSendEstimateSMS = async () => {
+    if (!customerPhone) return;
+    setSendingEstimate(true);
+    try {
+      await fetch('/api/estimate/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobTitle: job.title,
+          customerName: job.customer,
+          customerPhone,
+          items: job.items.map(i => ({ label: i.label, amount: i.amount, quantity: i.quantity ?? 1 })),
+          notes: job.notes ? job.notes.slice(0, 100) : undefined,
+        }),
+      });
+      setEstimateSent(true);
+      setTimeout(() => setEstimateSent(false), 3000);
+    } catch { /* silently fail */ }
+    setSendingEstimate(false);
+  };
+
   // AI estimate generation
   const [generatingEstimate, setGeneratingEstimate] = useState(false);
   const handleGenerateEstimate = async () => {
@@ -758,6 +782,12 @@ function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, on
             className="border border-teal-200 text-teal-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-teal-50 disabled:opacity-50 transition-colors">
             {generatingEstimate ? '⏳ Generating…' : '✨ AI Estimate'}
           </button>
+          {customerPhone && (job.items.length > 0 || job.estimate > 0) && (
+            <button onClick={handleSendEstimateSMS} disabled={sendingEstimate}
+              className="border border-blue-200 text-blue-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-blue-50 disabled:opacity-50 transition-colors">
+              {estimateSent ? '✓ Sent!' : sendingEstimate ? '⏳ Sending…' : '📱 Send Estimate'}
+            </button>
+          )}
           <button onClick={()=>{ setShowFollowUp(f=>!f); setShowParts(false); }}
             className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showFollowUp?'border-indigo-300 bg-indigo-50 text-indigo-700':'border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}>
             📅 {t('jobs.followUp')}
@@ -1061,8 +1091,9 @@ export default function JobsPage() {
             const next = NEXT_STATUS[job.status];
             const hasPhotos = job.photos.length > 0;
             const jobReminderCount = reminders.filter(r => r.jobId === job.id && !r.done).length;
+            const isCompleted = job.status === 'done' || job.status === 'paid';
             return (
-              <div key={job.id} className="p-4">
+              <div key={job.id} className={`p-4 ${isCompleted ? 'bg-green-50' : ''}`}>
                 <div className="flex items-start gap-3 mb-3">
                   <div className={`w-10 h-10 rounded-full ${avatarColor(job.customer)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
                     {initials(job.customer)}
@@ -1125,8 +1156,9 @@ export default function JobsPage() {
                 const next = NEXT_STATUS[job.status];
                 const hasPhotos = job.photos.length > 0;
                 const jobReminderCount = reminders.filter(r => r.jobId === job.id && !r.done).length;
+                const isCompleted = job.status === 'done' || job.status === 'paid';
                 return (
-                  <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={job.id} className={`transition-colors ${isCompleted ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-gray-50'}`}>
                     <td className="px-4 py-4 font-semibold text-gray-700 whitespace-nowrap">{jobId}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">

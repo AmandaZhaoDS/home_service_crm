@@ -82,6 +82,7 @@ export default function VoiceAssistant() {
 
   const recogRef = useRef<ISpeechRecognition | null>(null);
   const pulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -273,6 +274,17 @@ export default function VoiceAssistant() {
     const el = document.getElementById('vox-transcript');
     if (el) el.setAttribute('data-text', transcript);
   }, [transcript]);
+
+  // Auto-dismiss non-critical results after 2 s (action results stay longer)
+  useEffect(() => {
+    if (!result) return;
+    if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
+    const quickDismiss = ['info', 'navigate', 'note_saved', 'attach_photo', 'update_job_status', 'request_price_approval', 'mark_job_done'];
+    if (quickDismiss.includes(result.type)) {
+      autoDismissRef.current = setTimeout(() => { setResult(null); setTranscript(''); }, 2500);
+    }
+    return () => { if (autoDismissRef.current) clearTimeout(autoDismissRef.current); };
+  }, [result]);
 
   if (!supported && !open) return null;
 
@@ -524,7 +536,7 @@ export default function VoiceAssistant() {
           title={t('voice.title')}
           className={`
             relative flex items-center justify-center rounded-full shadow-xl transition-all duration-300
-            ${isDashboard ? 'w-16 h-16' : 'w-12 h-12'}
+            ${isDashboard ? 'w-16 h-16' : 'w-14 h-14'}
             ${open ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}
             ${listening ? 'ring-4 ring-red-400 ring-opacity-60' : 'hover:scale-105'}
           `}
@@ -532,7 +544,7 @@ export default function VoiceAssistant() {
           {listening && (
             <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-40"/>
           )}
-          <MicIcon className={`text-white relative z-10 ${isDashboard ? 'w-7 h-7' : 'w-5 h-5'}`}/>
+          <MicIcon className={`text-white relative z-10 ${isDashboard ? 'w-7 h-7' : 'w-6 h-6'}`}/>
           <span className={`absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white
             ${listening ? 'bg-red-500 animate-pulse' : 'bg-green-400'}`}/>
         </button>

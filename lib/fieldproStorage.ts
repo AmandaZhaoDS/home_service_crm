@@ -45,6 +45,8 @@ export interface Customer {
   totalSpent: number;
   lastService: string;
   attachments?: CustomerAttachment[];
+  customerPhoneVerified?: boolean;
+  source?: 'manual' | 'sms' | 'import';
 }
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
