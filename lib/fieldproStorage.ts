@@ -23,6 +23,9 @@ export interface Job {
   items: JobItem[];
   notes: string;
   photos: string[];
+  smsSource?: boolean;
+  incomingMessageText?: string;
+  urgencyLevel?: 'low' | 'medium' | 'high' | 'emergency';
 }
 
 export interface CustomerAttachment {
