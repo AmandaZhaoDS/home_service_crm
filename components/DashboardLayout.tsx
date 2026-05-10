@@ -58,20 +58,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [localPhone, setLocalPhone] = useState<string | null>(null);
 
   const handleProvision = async () => {
     if (!user || provisioning) return;
     setProvisioning(true);
+    setProvisionError(null);
     try {
       const res = await fetch('/api/twilio/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
       });
-      if (res.ok) await refreshUser();
-    } catch { /* ignore */ }
+      const json = await res.json();
+      if (res.ok && json.phoneNumber) {
+        setLocalPhone(json.phoneNumber); // show immediately before refreshUser
+        await refreshUser();             // sync to global auth state
+      } else {
+        setProvisionError(json.error ?? 'Failed — check Vercel env vars');
+      }
+    } catch {
+      setProvisionError('Network error — try again');
+    }
     setProvisioning(false);
   };
+
+  const displayPhone = user?.smsPhone ?? localPhone;
   const [createOpen, setCreateOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -288,13 +301,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-sm font-semibold text-gray-900 leading-tight">{user?.name ?? firstName}</p>
                       <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
-                      {user?.smsPhone ? (
-                        <p className="text-xs text-blue-600 font-mono mt-1">📱 {user.smsPhone}</p>
+                      {displayPhone ? (
+                        <p className="text-xs text-blue-600 font-mono mt-1">📱 {displayPhone}</p>
                       ) : (
-                        <button onClick={handleProvision} disabled={provisioning}
-                          className="mt-1.5 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors">
-                          {provisioning ? 'Getting number…' : '+ Get SMS number'}
-                        </button>
+                        <>
+                          <button onClick={handleProvision} disabled={provisioning}
+                            className="mt-1.5 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors">
+                            {provisioning ? '⏳ Getting number…' : '+ Get SMS number'}
+                          </button>
+                          {provisionError && <p className="text-xs text-red-500 mt-0.5">{provisionError}</p>}
+                        </>
                       )}
                     </div>
                     <button
@@ -394,13 +410,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{user?.name ?? firstName}</p>
                   <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-                  {user?.smsPhone ? (
-                    <p className="text-xs text-blue-600 font-mono mt-0.5">📱 {user.smsPhone}</p>
+                  {displayPhone ? (
+                    <p className="text-xs text-blue-600 font-mono mt-0.5">📱 {displayPhone}</p>
                   ) : (
-                    <button onClick={handleProvision} disabled={provisioning}
-                      className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 mt-0.5 transition-colors">
-                      {provisioning ? 'Getting number…' : '+ Get SMS number'}
-                    </button>
+                    <>
+                      <button onClick={handleProvision} disabled={provisioning}
+                        className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 mt-0.5 transition-colors">
+                        {provisioning ? '⏳ Getting number…' : '+ Get SMS number'}
+                      </button>
+                      {provisionError && <p className="text-xs text-red-500">{provisionError}</p>}
+                    </>
                   )}
                 </div>
               </div>

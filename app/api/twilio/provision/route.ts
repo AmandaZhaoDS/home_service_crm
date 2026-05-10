@@ -21,8 +21,11 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    const friendlyName = `JobPilot-${userId.slice(0, 8)}`;
+    const webhookUrl = `${request.nextUrl.origin}/api/sms/incoming`;
 
-    // Idempotency check — return existing number if already provisioned
+    // ── Layer 1: DB idempotency check ──────────────────────────────────────
     const { data: existing } = await supabase
       .from('twilio_numbers')
       .select('phone_number')
@@ -33,10 +36,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ phoneNumber: existing.phone_number });
     }
 
-    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-    const webhookUrl = `${request.nextUrl.origin}/api/sms/incoming`;
+    // ── Layer 2: Twilio-direct check (prevents double-purchase if DB insert
+    //    failed on a previous attempt, e.g. table didn't exist yet) ─────────
+    const listRes = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json?FriendlyName=${encodeURIComponent(friendlyName)}`,
+      { headers: { Authorization: `Basic ${auth}` } }
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const already = listData.incoming_phone_numbers?.[0];
+      if (already) {
+        // Number already purchased in Twilio — re-sync to DB and return
+        await supabase.from('twilio_numbers').upsert(
+          { user_id: userId, phone_number: already.phone_number, twilio_sid: already.sid, label: 'Business Line' },
+          { onConflict: 'user_id' }
+        );
+        console.log(`[Provision] Re-synced existing number ${already.phone_number} → user ${userId}`);
+        return NextResponse.json({ phoneNumber: already.phone_number });
+      }
+    }
 
-    // ── Find an available local US number with SMS capability ──────────────
+    // ── Find an available local US number ─────────────────────────────────
     const searchRes = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&Limit=1`,
       { headers: { Authorization: `Basic ${auth}` } }
@@ -45,7 +65,7 @@ export async function POST(request: NextRequest) {
     if (!searchRes.ok) {
       const err = await searchRes.json();
       console.error('[Provision] Search failed:', err);
-      return NextResponse.json({ error: 'No available numbers found' }, { status: 502 });
+      return NextResponse.json({ error: 'Could not search available numbers — check Twilio credentials' }, { status: 502 });
     }
 
     const searchData = await searchRes.json();
@@ -55,10 +75,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No available numbers in region' }, { status: 404 });
     }
 
-    // ── Purchase the number with SMS webhook pre-configured ────────────────
+    // ── Purchase ───────────────────────────────────────────────────────────
     const purchaseBody = new URLSearchParams({
       PhoneNumber: availableNumber,
-      FriendlyName: `JobPilot-${userId.slice(0, 8)}`,
+      FriendlyName: friendlyName,
       SmsUrl: webhookUrl,
       SmsMethod: 'POST',
     });
@@ -67,10 +87,7 @@ export async function POST(request: NextRequest) {
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json`,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
         body: purchaseBody.toString(),
       }
     );
@@ -78,22 +95,19 @@ export async function POST(request: NextRequest) {
     if (!purchaseRes.ok) {
       const err = await purchaseRes.json();
       console.error('[Provision] Purchase failed:', err);
-      return NextResponse.json({ error: err.message ?? 'Purchase failed' }, { status: 502 });
+      return NextResponse.json({ error: err.message ?? 'Purchase failed — check Twilio account balance' }, { status: 502 });
     }
 
     const purchased = await purchaseRes.json();
     const phoneNumber: string = purchased.phone_number;
     const twilioSid: string   = purchased.sid;
 
-    // ── Persist in DB ──────────────────────────────────────────────────────
-    const { error: dbErr } = await supabase.from('twilio_numbers').insert({
-      user_id:    userId,
-      phone_number: phoneNumber,
-      twilio_sid: twilioSid,
-      label:      'Business Line',
-    });
-
-    if (dbErr) console.error('[Provision] DB insert failed:', dbErr);
+    // ── Persist (upsert to survive race conditions) ────────────────────────
+    const { error: dbErr } = await supabase.from('twilio_numbers').upsert(
+      { user_id: userId, phone_number: phoneNumber, twilio_sid: twilioSid, label: 'Business Line' },
+      { onConflict: 'user_id' }
+    );
+    if (dbErr) console.error('[Provision] DB upsert failed:', dbErr.message, '— run the twilio_numbers SQL migration');
 
     console.log(`[Provision] Assigned ${phoneNumber} (${twilioSid}) → user ${userId}`);
     return NextResponse.json({ phoneNumber });
