@@ -8,6 +8,7 @@ import Modal from '../components/Modal';
 import CustomerSearch from '../components/CustomerSearch';
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function localDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 async function compressImage(file: File, maxPx = 900, quality = 0.72): Promise<string> {
   return new Promise(resolve => {
@@ -42,8 +43,8 @@ function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.ch
 function initials(name: string) { return name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2); }
 
 function invNum() { return `INV-${Date.now().toString().slice(-6)}`; }
-function todayStr() { return new Date().toISOString().split('T')[0]; }
-function dueDateStr() { return new Date(Date.now()+14*86400000).toISOString().split('T')[0]; }
+function todayStr() { return localDate(); }
+function dueDateStr() { return localDate(new Date(Date.now()+14*86400000)); }
 
 function WorkflowProgress({ status }: { status: JobStatus }) {
   const currentIdx = WORKFLOW_STEPS.findIndex(s => s === status);
@@ -141,7 +142,7 @@ function NewEstimateModal({ allCustomers, onSave, onNewCustomer, onClose }: {
 }) {
   const t = useT();
   const [f, setF] = useState<EstimateForm>({
-    title: '', customer: '', date: new Date().toISOString().split('T')[0],
+    title: '', customer: '', date: localDate(),
     time: '09:00 AM', address: '', notes: '', estimate: 0,
   });
   const set = <K extends keyof EstimateForm>(k: K, v: EstimateForm[K]) => setF(p => ({ ...p, [k]: v }));
@@ -562,7 +563,7 @@ export default function Home() {
   const t = useT();
   const jobs = data?.jobs ?? [];
   const allCustomers = data?.customers ?? [];
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate();
 
   const todayLabel = useMemo(() => {
     return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });

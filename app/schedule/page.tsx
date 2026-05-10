@@ -10,6 +10,7 @@ import Modal from '../../components/Modal';
 const RouteMap = dynamic(() => import('../../components/RouteMap'), { ssr: false });
 
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function localDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
 const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
@@ -71,7 +72,7 @@ function NewAppointmentModal({ customers, googleConnected, onSave, onClose }: {
 }) {
   const t = useT();
   const [f, setF] = useState<ApptForm>({
-    title: '', customer: '', date: new Date().toISOString().split('T')[0],
+    title: '', customer: '', date: localDate(),
     time: '09:00 AM', address: '', notes: '', syncGoogle: googleConnected,
   });
   const set = <K extends keyof ApptForm>(k: K, v: ApptForm[K]) => setF(p => ({ ...p, [k]: v }));
@@ -137,7 +138,7 @@ export default function SchedulePage() {
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [calendarView, setCalendarView] = useState<'appointments' | 'full'>('appointments');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDate();
 
   useEffect(() => {
     if (!user?.id) return;

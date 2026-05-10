@@ -25,8 +25,9 @@ export default function LoginPage() {
     if (!result.success) {
       setError(result.message || 'Login failed.');
       setPending(false);
+    } else {
+      router.replace('/');
     }
-    // Navigation is handled by the useEffect below once user state commits.
   };
 
   return (
