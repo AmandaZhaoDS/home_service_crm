@@ -559,7 +559,7 @@ function QuickActions({ jobs, today, onAdvance, onConvertInvoice }: {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Home() {
-  const { data, updateData } = useAuth();
+  const { user, data, updateData } = useAuth();
   const t = useT();
   const jobs = data?.jobs ?? [];
   const allCustomers = data?.customers ?? [];
@@ -587,6 +587,8 @@ export default function Home() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modal, setModal] = useState<'none' | 'addWork' | 'newEstimate' | 'editJob' | 'confirmDelete'>('none');
+  const [followUpStatus, setFollowUpStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [followUpResult, setFollowUpResult] = useState<string>('');
 
   useEffect(() => {
     if (!selectedId && todayJobs.length > 0) setSelectedId(todayJobs[0].id);
@@ -669,6 +671,30 @@ export default function Home() {
     updateData({ ...data, jobs: data.jobs.map(j => j.id === job.id ? { ...j, status: nextStatus } : j) });
   }, [data, updateData]);
 
+  const runFollowUps = useCallback(async () => {
+    if (!user) return;
+    setFollowUpStatus('running');
+    try {
+      const res = await fetch('/api/follow-up/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, type: 'all' }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setFollowUpResult(`Sent ${json.sent} message${json.sent !== 1 ? 's' : ''}${json.skipped > 0 ? `, skipped ${json.skipped} (no phone)` : ''}`);
+        setFollowUpStatus('done');
+      } else {
+        setFollowUpResult(json.error ?? 'Unknown error');
+        setFollowUpStatus('error');
+      }
+    } catch {
+      setFollowUpResult('Network error');
+      setFollowUpStatus('error');
+    }
+    setTimeout(() => setFollowUpStatus('idle'), 4000);
+  }, [user]);
+
   return (
     <div className="space-y-5">
       <div>
@@ -679,6 +705,48 @@ export default function Home() {
         </h1>
         <p className="text-sm text-gray-500 mt-1">{t('dash.subtitle')}</p>
       </div>
+
+      {/* SMS Job Alerts — new requests from customers via SMS */}
+      {(() => {
+        const smsJobs = jobs.filter(j => (j as Job & { smsSource?: boolean }).smsSource && j.status === 'estimate');
+        if (!smsJobs.length) return null;
+        return (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">📱</span>
+              <h3 className="font-bold text-orange-800">New SMS Requests ({smsJobs.length})</h3>
+              <span className="text-xs text-orange-600 ml-auto">Needs review</span>
+            </div>
+            <div className="space-y-2">
+              {smsJobs.slice(0, 3).map(j => {
+                const smsJob = j as Job & { smsSource?: boolean; incomingMessageText?: string; urgencyLevel?: string };
+                return (
+                  <div key={j.id} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-orange-100">
+                    <div className={`w-8 h-8 rounded-full ${avatarColor(j.customer)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                      {initials(j.customer)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{j.customer}</p>
+                      {smsJob.incomingMessageText && (
+                        <p className="text-xs text-gray-500 truncate italic">"{smsJob.incomingMessageText}"</p>
+                      )}
+                    </div>
+                    {smsJob.urgencyLevel && smsJob.urgencyLevel !== 'medium' && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${smsJob.urgencyLevel === 'emergency' || smsJob.urgencyLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {smsJob.urgencyLevel}
+                      </span>
+                    )}
+                    <a href="/jobs" className="text-xs font-semibold px-2.5 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition-colors flex-shrink-0">
+                      Review
+                    </a>
+                  </div>
+                );
+              })}
+              {smsJobs.length > 3 && <p className="text-xs text-orange-600 text-center">+{smsJobs.length - 3} more in Jobs page</p>}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-5 items-start">
         {/* Left: Today's Jobs */}
@@ -792,6 +860,30 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Follow-up automation trigger */}
+      <div className="bg-white rounded-2xl shadow-sm p-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="font-semibold text-gray-900">AI Follow-up Automation</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Send reminders to customers with overdue invoices and request reviews for recently completed jobs.</p>
+          </div>
+          <button
+            onClick={runFollowUps}
+            disabled={followUpStatus === 'running'}
+            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 ${
+              followUpStatus === 'done' ? 'bg-emerald-100 text-emerald-700' :
+              followUpStatus === 'error' ? 'bg-red-100 text-red-700' :
+              'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            {followUpStatus === 'running' ? '⏳ Sending…' :
+             followUpStatus === 'done' ? `✓ ${followUpResult}` :
+             followUpStatus === 'error' ? `✗ ${followUpResult}` :
+             '📤 Send Follow-ups'}
+          </button>
+        </div>
+      </div>
 
       {modal === 'addWork' && selectedJob && (
         <AddWorkModal pricebook={data?.pricebook ?? []} onSave={addWorkItem} onClose={() => setModal('none')}/>
