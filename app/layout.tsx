@@ -5,8 +5,8 @@ import AuthBoundary from '../components/AuthBoundary';
 import { LanguageProvider } from '../lib/i18n';
 
 export const metadata: Metadata = {
-  title: 'FieldPro Jobs - HomeService CRM',
-  description: 'Complete home service management platform',
+  title: 'JobPilot - Home Service CRM',
+  description: 'AI-powered home service management platform',
 };
 
 export default function RootLayout({

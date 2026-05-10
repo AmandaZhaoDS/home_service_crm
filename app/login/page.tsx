@@ -33,9 +33,9 @@ export default function LoginPage() {
   return (
     <div className="mx-auto w-full max-w-md rounded-3xl bg-white px-6 py-10 shadow-xl sm:px-10">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-600 text-white text-2xl font-bold">F</div>
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-600 text-white text-lg font-bold">JP</div>
         <h1 className="text-2xl font-semibold text-slate-900">Welcome back</h1>
-        <p className="text-sm text-slate-500">Login to access your FieldPro Jobs dashboard.</p>
+        <p className="text-sm text-slate-500">Login to your JobPilot dashboard.</p>
       </div>
 
       {error && <div className="mb-4 rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -73,7 +73,7 @@ export default function LoginPage() {
       </form>
 
       <p className="mt-6 text-center text-sm text-slate-500">
-        New to FieldPro Jobs?{' '}
+        New to JobPilot?{' '}
         <Link href="/register" className="font-semibold text-blue-600 hover:text-blue-700">
           Create an account
         </Link>
