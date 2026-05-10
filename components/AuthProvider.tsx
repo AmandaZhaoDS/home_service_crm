@@ -142,15 +142,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
-    // Set placeholder unconditionally so the login page can safely call
-    // router.replace('/') right after this returns — AuthBoundary will see
-    // user != null and render the dashboard instead of bouncing to /login.
     if (authData.user) {
       setUser({
         id: authData.user.id,
         name: authData.user.email!.split('@')[0],
         email: authData.user.email!,
       });
+      // Start loading full profile + CRM data immediately so it's ready by
+      // the time the user reaches the dashboard. The SIGNED_IN event handler
+      // also does this; the second fetch is a no-op if data arrives first.
+      fetchUserRecord(authData.user.id, authData.user.email!)
+        .then(record => { setUser(record.user); setData(record.data); })
+        .catch(() => {});
     }
     return { success: true };
   };

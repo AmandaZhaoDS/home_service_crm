@@ -11,6 +11,7 @@ const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet
 function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[Math.abs(h)]; }
 function initials(name: string) { return name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2); }
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function localDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 const INPUT_CLS = "w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white";
 const LABEL_CLS = "block text-sm font-medium text-gray-700 mb-1.5";
@@ -349,7 +350,7 @@ export default function CustomersPage() {
     const toAdd = googleContacts
       .filter(c => selectedIds.includes(c.id))
       .filter(c => !(data.customers ?? []).some(ex => ex.name === c.name))
-      .map(c => ({ id: uid(), name: c.name, email: c.email, phone: c.phone, address: c.address, totalJobs: 0, totalSpent: 0, lastService: new Date().toISOString().split('T')[0] }));
+      .map(c => ({ id: uid(), name: c.name, email: c.email, phone: c.phone, address: c.address, totalJobs: 0, totalSpent: 0, lastService: localDate() }));
     if (toAdd.length > 0) {
       updateData({ ...data, customers: [...(data.customers ?? []), ...toAdd] });
       setShowImportModal(false);
@@ -369,7 +370,7 @@ export default function CustomersPage() {
     if (existingId) {
       updateData({...data, customers:data.customers.map(c=>c.id===existingId?{...c,...f}:c)});
     } else {
-      const newCust: Customer = { id:uid(), ...f, totalJobs:0, totalSpent:0, lastService:new Date().toISOString().split('T')[0] };
+      const newCust: Customer = { id:uid(), ...f, totalJobs:0, totalSpent:0, lastService:localDate() };
       updateData({...data, customers:[newCust,...data.customers]});
     }
     setModal('none'); setSelected(null);

@@ -11,6 +11,7 @@ const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet
 function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[Math.abs(h)]; }
 function initials(name: string) { return name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2); }
 function uid() { return typeof crypto!=='undefined'&&'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function localDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function fmtDate(s: string) { return new Date(s+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
 
 const STATUS_CLS: Record<string,string> = {
@@ -215,7 +216,7 @@ interface FormData {
   items:{id:string;label:string;amount:number;quantity:number}[];
 }
 function blankForm(defaultStatus: JobStatus = 'scheduled'): FormData {
-  return {title:'',customer:'',status:defaultStatus,date:new Date().toISOString().split('T')[0],time:'09:00 AM',address:'',technician:'',estimate:0,notes:'',items:[]};
+  return {title:'',customer:'',status:defaultStatus,date:localDate(),time:'09:00 AM',address:'',technician:'',estimate:0,notes:'',items:[]};
 }
 function jobToForm(j: Job): FormData {
   return {title:j.title,customer:j.customer,status:j.status,date:j.date,time:j.time,address:j.address,technician:j.technician,estimate:j.estimate,notes:j.notes,
@@ -754,9 +755,9 @@ export default function JobsPage() {
   const [modal, setModal] = useState<'none'|'create'|'estimate'|'edit'|'view'>('none');
   const [selected, setSelected] = useState<Job|null>(null);
 
+  // Handle global Create+ (top nav +Create New button) — runs once on mount,
+  // no data dependency so the modal opens even before data finishes loading.
   useEffect(() => {
-    if (!data) return;
-    // Handle global Create+ navigation
     const gc = sessionStorage.getItem('global-create');
     if (gc) {
       try {
@@ -765,6 +766,19 @@ export default function JobsPage() {
         else if (parsed.type === 'estimate') { sessionStorage.removeItem('global-create'); setModal('estimate'); setSelected(null); }
       } catch { sessionStorage.removeItem('global-create'); }
     }
+    // Also listen for the in-page event dispatched when already on /jobs
+    const handler = (e: Event) => {
+      const { type } = (e as CustomEvent<{ type: string }>).detail;
+      if (type === 'job') { setModal('create'); setSelected(null); }
+      else if (type === 'estimate') { setModal('estimate'); setSelected(null); }
+    };
+    window.addEventListener('global-create', handler);
+    return () => window.removeEventListener('global-create', handler);
+  }, []);
+
+  // Handle voice navigation — needs data to look up jobs
+  useEffect(() => {
+    if (!data) return;
     const cmd = sessionStorage.getItem('voice-nav');
     if (cmd) {
       try {
@@ -817,8 +831,8 @@ export default function JobsPage() {
       const inv = {
         id:uid(), invoiceNumber:`INV-${Date.now().toString().slice(-6)}`, customer:job.customer,
         jobTitle:job.title, amount:job.amount, status:'sent' as const,
-        issueDate:new Date().toISOString().split('T')[0],
-        dueDate:new Date(Date.now()+14*86400000).toISOString().split('T')[0],
+        issueDate:localDate(),
+        dueDate:localDate(new Date(Date.now()+14*86400000)),
         description:job.notes||`Services for ${job.title}`,
       };
       newData = {...newData, invoices:[...(data.invoices??[]), inv]};
@@ -853,7 +867,7 @@ export default function JobsPage() {
       id: uid(), jobId: followUpJob.id, type: 'followup',
       message: `Follow-up: ${job.customer} — ${job.title}`,
       dueDate: date, done: false,
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: localDate(),
     };
     updateData({
       ...data,
@@ -866,7 +880,7 @@ export default function JobsPage() {
     if (!data) return;
     const reminder: Reminder = {
       ...r, id: uid(), jobId: job.id,
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: localDate(),
     };
     updateData({...data, reminders: [...(data.reminders ?? []), reminder]});
   }, [data, updateData]);
@@ -878,8 +892,8 @@ export default function JobsPage() {
       customer: job.customer, jobTitle: job.title,
       amount: job.amount > 0 ? job.amount : job.estimate,
       status: 'sent',
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: new Date(Date.now()+14*86400000).toISOString().split('T')[0],
+      issueDate: localDate(),
+      dueDate: localDate(new Date(Date.now()+14*86400000)),
       description: job.notes || `Services for ${job.title}`,
     };
     const updatedJob = {...job, status: 'invoice-sent' as JobStatus};
