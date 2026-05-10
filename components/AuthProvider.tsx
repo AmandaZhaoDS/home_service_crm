@@ -12,6 +12,7 @@ interface AuthContextValue {
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   updateData: (nextData: FieldProData) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -38,9 +39,10 @@ function migrateSampleData(data: FieldProData): FieldProData {
 }
 
 async function fetchUserRecord(userId: string, email: string): Promise<{ user: UserAccount; data: FieldProData }> {
-  const [{ data: profile }, { data: crmRow }] = await Promise.all([
+  const [{ data: profile }, { data: crmRow }, { data: phoneRow }] = await Promise.all([
     supabase.from('profiles').select('name').eq('id', userId).single(),
     supabase.from('user_crm_data').select('data').eq('user_id', userId).single(),
+    supabase.from('twilio_numbers').select('phone_number').eq('user_id', userId).maybeSingle(),
   ]);
 
   const raw = (crmRow?.data as FieldProData) ?? getDefaultData();
@@ -49,6 +51,7 @@ async function fetchUserRecord(userId: string, email: string): Promise<{ user: U
       id: userId,
       name: profile?.name ?? email.split('@')[0],
       email,
+      smsPhone: phoneRow?.phone_number ?? undefined,
     },
     data: migrateSampleData(raw),
   };
@@ -194,6 +197,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser({ id: userId, name, email });
     setData(defaultData);
+
+    // Provision a dedicated Twilio number in the background — don't block registration UI
+    fetch('/api/twilio/provision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+      .then(r => r.json())
+      .then(({ phoneNumber }) => {
+        if (phoneNumber) setUser(prev => prev ? { ...prev, smsPhone: phoneNumber } : prev);
+      })
+      .catch(() => {});
+
     return { success: true };
   };
 
@@ -203,6 +219,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setData(null);
     supabase.auth.signOut();
   };
+
+  const refreshUser = useCallback(async () => {
+    if (!user) return;
+    try {
+      const record = await fetchUserRecord(user.id, user.email);
+      setUser(record.user);
+      setData(record.data);
+    } catch { /* ignore */ }
+  }, [user]);
 
   const updateData = useCallback(
     (nextData: FieldProData) => {
@@ -220,8 +245,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, data, loading, login, register, logout, updateData }),
-    [user, data, loading, updateData],
+    () => ({ user, data, loading, login, register, logout, updateData, refreshUser }),
+    [user, data, loading, updateData, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

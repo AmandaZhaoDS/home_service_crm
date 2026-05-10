@@ -107,6 +107,7 @@ export interface UserAccount {
   id: string;
   name: string;
   email: string;
+  smsPhone?: string;
 }
 
 // ─── Default data for new users ──────────────────────────────────────────────

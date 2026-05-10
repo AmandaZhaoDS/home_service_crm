@@ -52,11 +52,26 @@ function BellIcon() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, data, logout } = useAuth();
+  const { user, data, logout, refreshUser } = useAuth();
   const { lang, setLang, t } = useLanguage();
   const [langOpen, setLangOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
+
+  const handleProvision = async () => {
+    if (!user || provisioning) return;
+    setProvisioning(true);
+    try {
+      const res = await fetch('/api/twilio/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      if (res.ok) await refreshUser();
+    } catch { /* ignore */ }
+    setProvisioning(false);
+  };
   const [createOpen, setCreateOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -273,6 +288,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-sm font-semibold text-gray-900 leading-tight">{user?.name ?? firstName}</p>
                       <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
+                      {user?.smsPhone ? (
+                        <p className="text-xs text-blue-600 font-mono mt-1">📱 {user.smsPhone}</p>
+                      ) : (
+                        <button onClick={handleProvision} disabled={provisioning}
+                          className="mt-1.5 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors">
+                          {provisioning ? 'Getting number…' : '+ Get SMS number'}
+                        </button>
+                      )}
                     </div>
                     <button
                       onClick={() => { logout(); setUserMenuOpen(false); }}
@@ -371,6 +394,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{user?.name ?? firstName}</p>
                   <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                  {user?.smsPhone ? (
+                    <p className="text-xs text-blue-600 font-mono mt-0.5">📱 {user.smsPhone}</p>
+                  ) : (
+                    <button onClick={handleProvision} disabled={provisioning}
+                      className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 mt-0.5 transition-colors">
+                      {provisioning ? 'Getting number…' : '+ Get SMS number'}
+                    </button>
+                  )}
                 </div>
               </div>
               <button
