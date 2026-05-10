@@ -19,9 +19,10 @@ export async function POST(request: NextRequest) {
     // Validate environment variables
     const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
     const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioMessagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
     const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    if (!twilioAccountSid || !twilioAuthToken || !twilioPhoneNumber) {
+    if (!twilioAccountSid || !twilioAuthToken || (!twilioMessagingServiceSid && !twilioPhoneNumber)) {
       console.error('Missing Twilio environment variables');
       return NextResponse.json(
         { error: 'SMS service not configured' },
@@ -29,12 +30,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Twilio API endpoint
     const url = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
 
-    // Create form data for Twilio
     const formData = new URLSearchParams();
-    formData.append('From', twilioPhoneNumber);
+    // Messaging Service SID is preferred: handles A2P compliance, number pooling, opt-outs
+    if (twilioMessagingServiceSid) {
+      formData.append('MessagingServiceSid', twilioMessagingServiceSid);
+    } else {
+      formData.append('From', twilioPhoneNumber!);
+    }
     formData.append('To', to);
     formData.append('Body', message);
 
