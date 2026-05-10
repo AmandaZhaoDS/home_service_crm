@@ -8,7 +8,7 @@ import { useAuth } from './AuthProvider';
 import { usePathname } from 'next/navigation';
 
 interface VoiceResult {
-  type: 'customers' | 'jobs' | 'note' | 'error' | 'info' | 'open_customer' | 'open_job' | 'navigate' | 'add_note' | 'note_saved';
+  type: 'customers' | 'jobs' | 'note' | 'error' | 'info' | 'open_customer' | 'open_job' | 'navigate' | 'add_note' | 'note_saved' | 'update_job_status' | 'request_price_approval' | 'mark_job_done' | 'attach_photo';
   message: string;
   customers?: { id: string; name: string; email: string; phone: string }[];
   jobs?: { id: string; title: string; customer: string; status: string; date: string; amount: number }[];
@@ -19,6 +19,8 @@ interface VoiceResult {
   jobTitle?: string;
   path?: string;
   note?: string;
+  newStatus?: 'on-site' | 'done';
+  approvedPrice?: number;
 }
 
 interface ISpeechRecognition extends EventTarget {
@@ -127,7 +129,72 @@ export default function VoiceAssistant() {
       }
       setResult(prev => prev ? { ...prev, type: 'note', noteAdded: result.note } : null);
     }
-  }, [result?.type, result?.customerId, result?.jobId, result?.path]); // eslint-disable-line
+
+    // Technician action: Update job status
+    if (result.type === 'update_job_status' && result.jobId && result.newStatus && data) {
+      const job = data.jobs.find(j => j.id === result.jobId);
+      if (job) {
+        updateData({ ...data, jobs: data.jobs.map(j => j.id === result.jobId ? { ...j, status: result.newStatus! } : j) });
+        setResult(prev => prev ? { ...prev, message: `✓ ${result.jobTitle} status updated to ${result.newStatus}` } : null);
+        return;
+      }
+    }
+
+    // Technician action: Request price approval
+    if (result.type === 'request_price_approval' && result.jobId && result.approvedPrice && data) {
+      const job = data.jobs.find(j => j.id === result.jobId);
+      if (job) {
+        updateData({ ...data, jobs: data.jobs.map(j => j.id === result.jobId ? { ...j, estimate: result.approvedPrice! } : j) });
+        setResult(prev => prev ? { ...prev, message: `✓ Price of $${result.approvedPrice} recorded for ${result.jobTitle}` } : null);
+        return;
+      }
+    }
+
+    // Technician action: Attach photo — open job detail for photo upload
+    if (result.type === 'attach_photo') {
+      if (result.jobId) {
+        if (pathname === '/jobs') {
+          window.dispatchEvent(new CustomEvent('voice:attach-photo', { detail: { jobId: result.jobId } }));
+        } else {
+          sessionStorage.setItem('voice-nav', JSON.stringify({ type: 'open_job', jobId: result.jobId }));
+          router.push('/jobs');
+        }
+      }
+      return;
+    }
+
+    // Technician action: Mark job done
+    if (result.type === 'mark_job_done' && result.jobId && data) {
+      const job = data.jobs.find(j => j.id === result.jobId);
+      if (job) {
+        // Update job status to 'done' and auto-generate invoice if needed
+        const updatedJobs = data.jobs.map(j =>
+          j.id === result.jobId ? { ...j, status: 'done' as const } : j
+        );
+
+        // Check if invoice should be auto-generated
+        let updatedInvoices = data.invoices;
+        if (!data.invoices.find(inv => inv.jobTitle === job.title)) {
+          const newInvoice = {
+            id: `invoice-${Date.now()}`,
+            invoiceNumber: `INV-${String(data.invoices.length + 1).padStart(3, '0')}`,
+            customer: job.customer,
+            jobTitle: job.title,
+            amount: job.amount || job.estimate || 0,
+            status: 'draft' as const,
+            issueDate: new Date().toISOString().split('T')[0],
+            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            description: job.notes,
+          };
+          updatedInvoices = [...data.invoices, newInvoice];
+        }
+
+        updateData({ ...data, jobs: updatedJobs, invoices: updatedInvoices });
+        setResult(prev => prev ? { ...prev, message: `✓ ${result.jobTitle} completed! Invoice auto-generated.` } : null);
+        return;
+      }
+    }
+  }, [result?.type, result?.customerId, result?.jobId, result?.path, result?.newStatus, result?.approvedPrice]); // eslint-disable-line
 
   const stopListening = useCallback(() => {
     recogRef.current?.stop();
@@ -376,6 +443,14 @@ export default function VoiceAssistant() {
                     <div className="bg-amber-50 rounded-xl p-3">
                       <p className="text-sm font-semibold text-amber-800">{t('voice.noJobFound')}</p>
                       {result.note && <p className="text-xs text-amber-700 mt-0.5">"{result.note}"</p>}
+                    </div>
+                  )}
+
+                  {/* Attach photo confirmation */}
+                  {result.type === 'attach_photo' && (
+                    <div className="bg-violet-50 rounded-xl p-3 flex items-center gap-2">
+                      <span className="text-violet-600 text-base">📷</span>
+                      <p className="text-sm font-semibold text-violet-800">{result.message}</p>
                     </div>
                   )}
 

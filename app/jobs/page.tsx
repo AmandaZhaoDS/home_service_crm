@@ -363,6 +363,40 @@ function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, on
   const [showWiSugg, setShowWiSugg] = useState(false);
   const [showMap, setShowMap] = useState(false);
 
+  // AI estimate generation
+  const [generatingEstimate, setGeneratingEstimate] = useState(false);
+  const handleGenerateEstimate = async () => {
+    setGeneratingEstimate(true);
+    try {
+      const res = await fetch('/api/estimate/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobTitle: job.title, description: job.notes, pricebook }),
+      });
+      const json = await res.json();
+      if (json.items?.length) {
+        const newItems = json.items.map((i: {label:string;amount:number;quantity:number}) => ({
+          id: uid(), label: i.label, amount: i.amount, quantity: i.quantity ?? 1,
+        }));
+        const newTotal = newItems.reduce((s: number, i: {amount:number;quantity:number}) => s + i.amount * i.quantity, 0);
+        onUpdateJob({ ...job, items: [...job.items, ...newItems], estimate: job.items.length === 0 ? newTotal : job.estimate });
+      }
+    } catch { /* silently fail */ }
+    setGeneratingEstimate(false);
+  };
+
+  // Customer history from past jobs
+  const customerPastJobs = useMemo(() =>
+    pastJobs.filter(j => j.customer === job.customer),
+    [pastJobs, job.customer]
+  );
+  const lastCompletedJob = useMemo(() =>
+    customerPastJobs
+      .filter(j => ['done','paid','invoice-sent'].includes(j.status))
+      .sort((a, b) => b.date.localeCompare(a.date))[0],
+    [customerPastJobs]
+  );
+
   const wiSuggestions = useMemo(() => {
     const q = wi.label.trim().toLowerCase();
     if (q.length < 1) return [];
@@ -487,6 +521,40 @@ function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, on
           <span>{fmtDate(job.date)}, {job.time}</span>
           {job.technician && <><span className="text-gray-300">•</span><span>{job.technician}</span></>}
         </div>
+        {/* SMS intake banner */}
+        {job.smsSource && (
+          <div className="mb-3 bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 flex items-start gap-2">
+            <span className="text-orange-500 text-sm mt-0.5">📱</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-orange-700">Incoming SMS Request</p>
+              {job.incomingMessageText && <p className="text-xs text-orange-600 italic mt-0.5">"{job.incomingMessageText}"</p>}
+            </div>
+            {job.urgencyLevel && job.urgencyLevel !== 'medium' && (
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                job.urgencyLevel === 'emergency' ? 'bg-red-100 text-red-700' :
+                job.urgencyLevel === 'high' ? 'bg-orange-200 text-orange-800' : 'bg-gray-100 text-gray-600'
+              }`}>{job.urgencyLevel}</span>
+            )}
+          </div>
+        )}
+
+        {/* Customer history context */}
+        {customerPastJobs.length > 0 && (
+          <div className="mb-3 bg-blue-50 rounded-xl px-3 py-2">
+            <p className="text-xs font-bold text-blue-700 mb-1">Customer History</p>
+            <div className="flex flex-wrap gap-3 text-xs text-blue-800">
+              <span>{customerPastJobs.length} past job{customerPastJobs.length !== 1 ? 's' : ''}</span>
+              {lastCompletedJob && <span>Last service: {fmtDate(lastCompletedJob.date)} — {lastCompletedJob.title}</span>}
+            </div>
+            {customerPastJobs.length > 1 && (
+              <p className="text-xs text-blue-600 mt-1">
+                {customerPastJobs.slice(0, 2).map(j => j.title).join(', ')}
+                {customerPastJobs.length > 2 ? ` +${customerPastJobs.length - 2} more` : ''}
+              </p>
+            )}
+          </div>
+        )}
+
         <WorkflowProgress status={job.status}/>
         <p className="text-sm font-semibold text-gray-600 mb-4">{t('jobs.estimateTotal')} <span className="text-gray-900">${job.estimate.toFixed(2)}</span></p>
 
@@ -686,6 +754,10 @@ function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, on
         <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
           <button onClick={onEdit} className="border border-gray-200 text-gray-700 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">{t('common.edit')}</button>
           <button onClick={()=>setAddingWork(true)} className="border border-blue-200 text-blue-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors">{t('jobs.addWork')}</button>
+          <button onClick={handleGenerateEstimate} disabled={generatingEstimate}
+            className="border border-teal-200 text-teal-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-teal-50 disabled:opacity-50 transition-colors">
+            {generatingEstimate ? '⏳ Generating…' : '✨ AI Estimate'}
+          </button>
           <button onClick={()=>{ setShowFollowUp(f=>!f); setShowParts(false); }}
             className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showFollowUp?'border-indigo-300 bg-indigo-50 text-indigo-700':'border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}>
             📅 {t('jobs.followUp')}
@@ -795,8 +867,17 @@ export default function JobsPage() {
       const job = data.jobs.find(j => j.id === jobId);
       if (job) { setSelected(job); setModal('view'); }
     };
+    const photoHandler = (e: Event) => {
+      const { jobId } = (e as CustomEvent<{ jobId: string }>).detail;
+      const job = data.jobs.find(j => j.id === jobId);
+      if (job) { setSelected(job); setModal('view'); }
+    };
     window.addEventListener('voice:open-job', handler);
-    return () => window.removeEventListener('voice:open-job', handler);
+    window.addEventListener('voice:attach-photo', photoHandler);
+    return () => {
+      window.removeEventListener('voice:open-job', handler);
+      window.removeEventListener('voice:attach-photo', photoHandler);
+    };
   }, [data]);
 
   const filtered = useMemo(()=>{
@@ -905,6 +986,25 @@ export default function JobsPage() {
     setSelected(updatedJob);
   }, [data, updateData]);
 
+  const quickComplete = useCallback((job: Job) => {
+    if (!data) return;
+    const completedJob: Job = { ...job, status: 'done' };
+    const inv: Invoice = {
+      id: uid(), invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      customer: job.customer, jobTitle: job.title,
+      amount: job.amount > 0 ? job.amount : job.estimate,
+      status: 'sent',
+      issueDate: localDate(),
+      dueDate: localDate(new Date(Date.now() + 14 * 86400000)),
+      description: job.notes || `Services for ${job.title}`,
+    };
+    updateData({
+      ...data,
+      jobs: data.jobs.map(j => j.id === job.id ? completedJob : j),
+      invoices: [...(data.invoices ?? []), inv],
+    });
+  }, [data, updateData]);
+
   // Suppress unused import warning for useRef
   const _ref = useRef(null); void _ref;
 
@@ -974,6 +1074,7 @@ export default function JobsPage() {
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${badge}`}>{STATUS_LABEL[job.status] ?? job.status}</span>
+                    {job.smsSource && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">📱 SMS</span>}
                     <span className="text-sm font-bold text-gray-900">${job.amount.toFixed(2)}</span>
                     {(hasPhotos || jobReminderCount > 0) && (
                       <div className="flex gap-1.5 text-xs">
@@ -983,7 +1084,7 @@ export default function JobsPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button onClick={() => { setSelected(job); setModal('view'); }}
                     className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors">
                     {t('common.view')}
@@ -992,6 +1093,12 @@ export default function JobsPage() {
                     <button onClick={() => advanceStatus(job)}
                       className="flex-1 border border-blue-200 text-blue-700 text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-50 transition-colors">
                       {next.label}
+                    </button>
+                  )}
+                  {!['done','invoice-sent','paid'].includes(job.status) && (
+                    <button onClick={() => quickComplete(job)}
+                      className="flex-1 bg-emerald-500 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-emerald-600 transition-colors">
+                      ✓ Complete
                     </button>
                   )}
                 </div>
@@ -1033,7 +1140,10 @@ export default function JobsPage() {
                     <td className="px-4 py-4 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{job.title}</td>
                     <td className="px-4 py-4 text-gray-600 whitespace-nowrap">{fmtDate(job.date)}, {job.time}</td>
                     <td className="px-4 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${badge}`}>{STATUS_LABEL[job.status]??job.status}</span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold w-fit ${badge}`}>{STATUS_LABEL[job.status]??job.status}</span>
+                        {job.smsSource && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 w-fit">📱 SMS</span>}
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-gray-600 max-w-[160px]"><span className="truncate block">{job.address.split(',').slice(0,2).join(',')}</span></td>
                     <td className="px-4 py-4 font-semibold text-gray-900 whitespace-nowrap">
@@ -1044,12 +1154,16 @@ export default function JobsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={()=>{setSelected(job);setModal('view');}}
                           className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">{t('common.view')}</button>
                         {next && (
                           <button onClick={()=>advanceStatus(job)}
                             className="border border-blue-200 text-blue-600 hover:bg-blue-50 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">{next.label}</button>
+                        )}
+                        {!['done','invoice-sent','paid'].includes(job.status) && (
+                          <button onClick={()=>quickComplete(job)}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">✓ Complete</button>
                         )}
                       </div>
                     </td>

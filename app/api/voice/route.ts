@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 interface CustomerCtx { id: string; name: string; email: string; phone: string; }
 interface JobCtx { id: string; title: string; customer: string; status: string; date: string; amount: number; notes: string; }
 
-const SYSTEM = `You are an AI assistant for a home service CRM app called FieldPro Jobs.
+const SYSTEM = `You are an AI assistant for a home service CRM app called FieldPal.
 The user speaks a voice command in any language.
 
 RESPOND ONLY with valid JSON, no markdown, no explanation.
@@ -20,19 +20,29 @@ CRITICAL LANGUAGE RULE:
 NEVER default to English when a non-English language code is provided.
 
 Actions:
+SEARCH & NAVIGATION:
 1. search_customers - list matching customers by search term
 2. search_jobs - list matching jobs by search term or status
 3. open_customer - open a specific customer profile (user says open/show/view/go to [name])
 4. open_job - open a specific job record
-5. add_note - add a note to a specific job (extract note text and job target)
-6. navigate - go to a page (customers, jobs, invoices, schedule, dashboard/home)
-7. info - general question or fallback
+5. navigate - go to a page (customers, jobs, invoices, schedule, dashboard/home)
+
+TECHNICIAN ACTIONS (for on-site use):
+6. update_job_status - change job status (extract current job context from nearby actions, options: "on-site", "done")
+7. add_note - add a note to a specific job (extract note text and job target)
+8. request_price_approval - request/confirm customer price approval (extract price amount and job)
+9. mark_job_done - complete job and optionally generate invoice
+10. attach_photo - open a job and attach a photo (user says "take photo", "attach photo for [job]")
+
+FALLBACK:
+11. info - general question or fallback
 
 JSON format:
 {
-  "action": "search_customers" | "search_jobs" | "open_customer" | "open_job" | "add_note" | "navigate" | "info",
-  "query": "search term for search_* | note text for add_note | page name for navigate",
-  "targetName": "specific customer or job name (for open_customer, open_job, add_note)",
+  "action": "search_customers" | "search_jobs" | "open_customer" | "open_job" | "update_job_status" | "add_note" | "request_price_approval" | "mark_job_done" | "attach_photo" | "navigate" | "info",
+  "query": "search term for search_* | note text for add_note | status/amount for update_job_status/request_price_approval | page name for navigate",
+  "targetName": "specific customer or job name (for open_*, add_note, *_job_status actions)",
+  "priceAmount": "extracted price amount (for request_price_approval, e.g., '450' or '450.00')",
   "message": "MUST be in the same language the user spoke — never default to English"
 }`;
 
@@ -127,6 +137,74 @@ Voice command: "${transcript}"`;
         if (found) { jobId = found.id; jobTitle = found.title; }
       }
       return NextResponse.json({ type: 'add_note', jobId, jobTitle, note, message: message || (jobTitle ? `Adding note to ${jobTitle}` : 'Note ready') });
+    }
+
+    if (action === 'update_job_status') {
+      const name = (targetName || query || '').toLowerCase();
+      const status = (query || 'on-site').toLowerCase();
+      const found = jobs.find(j => j.title.toLowerCase().includes(name))
+        ?? jobs.find(j => j.customer.toLowerCase().includes(name));
+      if (found) {
+        return NextResponse.json({
+          type: 'update_job_status',
+          jobId: found.id,
+          jobTitle: found.title,
+          newStatus: status.includes('done') ? 'done' : 'on-site',
+          message: message || `Updated job status`,
+        });
+      }
+      return NextResponse.json({ type: 'info', message: `Job not found: ${targetName || query}` });
+    }
+
+    if (action === 'request_price_approval') {
+      const name = (targetName || '').toLowerCase();
+      const priceStr = query || '';
+      let jobId: string | undefined;
+      let jobTitle: string | undefined;
+      if (name) {
+        const found = jobs.find(j => j.title.toLowerCase().includes(name))
+          ?? jobs.find(j => j.customer.toLowerCase().includes(name));
+        if (found) { jobId = found.id; jobTitle = found.title; }
+      }
+      return NextResponse.json({
+        type: 'request_price_approval',
+        jobId,
+        jobTitle,
+        approvedPrice: parseFloat(priceStr) || undefined,
+        message: message || (jobTitle ? `Price confirmed for ${jobTitle}` : 'Price recorded'),
+      });
+    }
+
+    if (action === 'mark_job_done') {
+      const name = (targetName || query || '').toLowerCase();
+      const found = jobs.find(j => j.title.toLowerCase().includes(name))
+        ?? jobs.find(j => j.customer.toLowerCase().includes(name));
+      if (found) {
+        return NextResponse.json({
+          type: 'mark_job_done',
+          jobId: found.id,
+          jobTitle: found.title,
+          message: message || `Job marked complete`,
+        });
+      }
+      return NextResponse.json({ type: 'info', message: `Job not found: ${targetName || query}` });
+    }
+
+    if (action === 'attach_photo') {
+      const name = (targetName || query || '').toLowerCase();
+      let jobId: string | undefined;
+      let jobTitle: string | undefined;
+      if (name) {
+        const found = jobs.find(j => j.title.toLowerCase().includes(name))
+          ?? jobs.find(j => j.customer.toLowerCase().includes(name));
+        if (found) { jobId = found.id; jobTitle = found.title; }
+      }
+      return NextResponse.json({
+        type: 'attach_photo',
+        jobId,
+        jobTitle,
+        message: message || (jobTitle ? `Opening ${jobTitle} — tap camera to attach photo` : 'Open a job to attach a photo'),
+      });
     }
 
     if (action === 'navigate') {
