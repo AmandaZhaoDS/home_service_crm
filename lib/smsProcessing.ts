@@ -96,7 +96,7 @@ export async function extractJobFromSMS(
  */
 export function generateConfirmationSMS(
   extraction: SMSJobExtraction,
-  businessName = 'FieldPal'
+  businessName = 'JobPilot'
 ): string {
   const cat = extraction.estimatedCategory ?? 'service';
   const categoryLabel = cat.charAt(0).toUpperCase() + cat.slice(1);

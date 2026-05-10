@@ -10,18 +10,25 @@ export default function AuthBoundary({ children }: { children: React.ReactNode }
   const router = useRouter();
   const { user, loading } = useAuth();
 
+  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/register')
+    || pathname.startsWith('/privacy') || pathname.startsWith('/terms');
+
   useEffect(() => {
-    if (!loading && !user && !pathname.startsWith('/login') && !pathname.startsWith('/register')) {
+    if (!loading && !user && !isPublic) {
       router.replace('/login');
     }
 
     if (!loading && user && (pathname.startsWith('/login') || pathname.startsWith('/register'))) {
       router.replace('/');
     }
-  }, [loading, user, pathname, router]);
+  }, [loading, user, pathname, isPublic, router]);
 
   if (pathname.startsWith('/login') || pathname.startsWith('/register')) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">{children}</div>;
+  }
+
+  if (pathname.startsWith('/privacy') || pathname.startsWith('/terms')) {
+    return <>{children}</>;
   }
 
   if (loading && !user) {
