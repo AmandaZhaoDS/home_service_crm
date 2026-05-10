@@ -63,20 +63,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const justRegistered = useRef(false);
 
   useEffect(() => {
-    // INITIAL_SESSION fires on the next tick (much faster than a getSession() roundtrip).
-    // We use it as the primary signal to resolve the loading state.
-    // getSession() is kept as a fallback in case INITIAL_SESSION never fires.
-    let initialSessionFired = false;
+    // resolved tracks whether we've committed to a loaded state (user or no user).
+    // Only the first call to resolve() takes effect; subsequent calls are no-ops.
+    let resolved = false;
+    let loadingTimerId: ReturnType<typeof setTimeout>;
 
-    // Safety net: if Supabase hangs on a token refresh (e.g. expired token + slow network),
-    // neither INITIAL_SESSION nor getSession() will resolve. Force-clear loading after 8 s
-    // so the user is never permanently stuck on the loading screen.
-    const loadingTimeout = setTimeout(() => {
-      if (!initialSessionFired) {
-        initialSessionFired = true;
+    const resolve = (sess: { id: string; email: string } | null) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(loadingTimerId);
+      if (sess) {
+        setUser(prev => prev ?? { id: sess.id, name: sess.email.split('@')[0], email: sess.email });
+        setLoading(false);
+        fetchUserRecord(sess.id, sess.email)
+          .then(record => { setUser(record.user); setData(record.data); })
+          .catch(() => {});
+      } else {
         setLoading(false);
       }
-    }, 8000);
+    };
+
+    // Safety net: if both onAuthStateChange and getSession() hang (e.g. slow network),
+    // force-clear loading after 8 s so the user is never permanently stuck.
+    loadingTimerId = setTimeout(() => resolve(null), 8000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
@@ -86,36 +95,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setData(null);
         }
-        if (!initialSessionFired) { initialSessionFired = true; setLoading(false); }
+        resolve(null);
         return;
       }
 
       if (event === 'INITIAL_SESSION') {
-        initialSessionFired = true;
         if (session) {
-          // Set a placeholder user immediately so the app doesn't redirect to /login
-          // while user data is still loading from Supabase.
-          setUser(prev => prev ?? {
-            id: session.user.id,
-            name: session.user.email!.split('@')[0],
-            email: session.user.email!,
-          });
-          // Resolve loading right away — don't await the DB fetch.
-          setLoading(false);
-          // Load full profile + CRM data in the background.
-          fetchUserRecord(session.user.id, session.user.email!)
-            .then(record => { setUser(record.user); setData(record.data); })
-            .catch(() => {});
-        } else {
-          setLoading(false);
+          // Non-expired session — fast path: resolve immediately.
+          resolve({ id: session.user.id, email: session.user.email! });
         }
+        // session is null: access token is expired and Supabase is refreshing it.
+        // Don't resolve yet — TOKEN_REFRESHED or getSession() below will handle it.
         return;
       }
 
-      // Don't clear state on events with no session (avoids wiping register() manual setUser)
       if (!session) return;
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // Covers the token-refresh path: resolve with the refreshed session.
+        resolve({ id: session.user.id, email: session.user.email! });
         try {
           const record = await fetchUserRecord(session.user.id, session.user.email!);
           setUser(record.user);
@@ -124,31 +122,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Fallback: if onAuthStateChange never fires INITIAL_SESSION, getSession() resolves loading
+    // getSession() performs token refresh when the access token is expired.
+    // It runs concurrently with onAuthStateChange and wins if INITIAL_SESSION
+    // fired with null (expired token case). resolve() is idempotent so there
+    // is no double-init if TOKEN_REFRESHED also fires.
     supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (initialSessionFired) return;
+      .then(({ data: { session } }) => {
         if (session) {
-          // Resolve loading immediately with placeholder (same as INITIAL_SESSION path)
-          // so navigation from voice assistant doesn't show loading screen
-          setUser(prev => prev ?? {
-            id: session.user.id,
-            name: session.user.email!.split('@')[0],
-            email: session.user.email!,
-          });
-          setLoading(false);
-          try {
-            const record = await fetchUserRecord(session.user.id, session.user.email!);
-            setUser(record.user);
-            setData(record.data);
-          } catch { /* keep null */ }
+          resolve({ id: session.user.id, email: session.user.email! });
         } else {
-          setLoading(false);
+          resolve(null);
         }
       })
-      .catch(() => { if (!initialSessionFired) setLoading(false); });
+      .catch(() => resolve(null));
 
-    return () => { subscription.unsubscribe(); clearTimeout(loadingTimeout); };
+    return () => { subscription.unsubscribe(); clearTimeout(loadingTimerId); };
   }, []);
 
   const login = async (email: string, password: string) => {
