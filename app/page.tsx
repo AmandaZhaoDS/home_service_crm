@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem, Customer } from '../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Customer, Invoice } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
 import CustomerSearch from '../components/CustomerSearch';
 
@@ -40,6 +40,10 @@ const STATUS_BADGE_CLS: Record<JobStatus,string> = {
 const AVATAR_COLORS = ['bg-blue-500','bg-emerald-500','bg-orange-400','bg-violet-500','bg-teal-500','bg-pink-500','bg-amber-500','bg-cyan-500'];
 function avatarColor(name: string) { let h=0; for (const c of name) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[Math.abs(h)]; }
 function initials(name: string) { return name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2); }
+
+function invNum() { return `INV-${Date.now().toString().slice(-6)}`; }
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+function dueDateStr() { return new Date(Date.now()+14*86400000).toISOString().split('T')[0]; }
 
 function WorkflowProgress({ status }: { status: JobStatus }) {
   const currentIdx = WORKFLOW_STEPS.findIndex(s => s === status);
@@ -192,6 +196,7 @@ function NewEstimateModal({ allCustomers, onSave, onNewCustomer, onClose }: {
 }
 
 function AddressCard({ address }: { address: string }) {
+  const t = useT();
   const [showMap, setShowMap] = useState(false);
   const encoded = encodeURIComponent(address);
   return (
@@ -201,11 +206,11 @@ function AddressCard({ address }: { address: string }) {
         <div className="flex gap-1 flex-shrink-0">
           <button onClick={() => setShowMap(m => !m)}
             className={`text-xs font-semibold px-2 py-1 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-            Map
+            {t('jobs.map')}
           </button>
           <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
             className="text-xs font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
-            Street View
+            {t('jobs.streetView')}
           </a>
           <a href={`https://maps.google.com?q=${encoded}`} target="_blank" rel="noreferrer"
             className="text-xs font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
@@ -226,8 +231,9 @@ function AddressCard({ address }: { address: string }) {
   );
 }
 
-function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, onDelete }: {
-  job: Job; customerPhone: string; onAddWork: () => void; onNewEstimate: () => void; onEdit: () => void; onDelete: () => void;
+function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onConvertToInvoice, onEdit, onDelete }: {
+  job: Job; customerPhone: string; onAddWork: () => void; onNewEstimate: () => void;
+  onConvertToInvoice: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const t = useT();
   const total = job.items.reduce((s, i) => s + i.amount * (i.quantity ?? 1), 0);
@@ -243,6 +249,8 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
     return () => document.removeEventListener('mousedown', handler);
   }, [moreOpen]);
 
+  const canConvert = job.status !== 'invoice-sent' && job.status !== 'paid';
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-start justify-between mb-1">
@@ -250,16 +258,14 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
         <div className="flex items-center gap-2 text-gray-400">
           {customerPhone ? (
             <a href={`tel:${customerPhone.replace(/\D/g, '')}`}
-              className="hover:text-blue-600 transition-colors" title={`Call ${customerPhone}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+              title={`Call ${customerPhone}`}>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
               </svg>
+              {customerPhone}
             </a>
-          ) : (
-            <svg className="w-5 h-5 opacity-30" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-          )}
+          ) : null}
           <div className="relative" ref={moreRef}>
             <button onClick={() => setMoreOpen(o => !o)} className="hover:text-gray-700 transition-colors">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -304,7 +310,7 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
               </div>
             ))}
             <div className="flex justify-between text-sm font-bold border-t border-gray-100 pt-2 mt-1">
-              <span className="text-gray-900">Total:</span>
+              <span className="text-gray-900">{t('jobs.estimateTotal').replace(':', '')}</span>
               <span className="text-gray-900">${total.toFixed(2)}</span>
             </div>
           </div>
@@ -318,7 +324,7 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
         </div>
       )}
 
-      <div className="flex gap-2 mt-auto pt-2">
+      <div className="flex gap-2 mt-auto pt-2 flex-wrap">
         <button onClick={onEdit}
           className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors">
           {t('common.edit')}
@@ -327,6 +333,12 @@ function JobDetailPanel({ job, customerPhone, onAddWork, onNewEstimate, onEdit, 
           className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-blue-700 transition-colors">
           {t('dash.addWork')}
         </button>
+        {canConvert && (
+          <button onClick={onConvertToInvoice}
+            className="flex-1 border border-violet-200 text-violet-600 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-violet-50 transition-colors">
+            {t('jobs.convertInvoice')}
+          </button>
+        )}
         <button onClick={onNewEstimate}
           className="flex-1 border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 px-3 rounded-xl hover:bg-gray-50 transition-colors">
           {t('dash.newEstimate')}
@@ -400,7 +412,6 @@ function EditJobModal({ job, allCustomers, onSave, onNewCustomer, onClose }: {
             <textarea className={INPUT_CLS + ' resize-none'} rows={3} value={f.notes} onChange={e => set('notes', e.target.value)}/>
           </div>
 
-          {/* Photos */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className={LABEL_CLS + ' mb-0'}>Photos ({f.photos.length})</label>
@@ -466,12 +477,96 @@ function EditJobModal({ job, allCustomers, onSave, onNewCustomer, onClose }: {
   );
 }
 
+// ─── Quick Actions ────────────────────────────────────────────────────────────
+
+const QA_STATUS_CFG: Partial<Record<JobStatus, { color: string; badge: string; actionKey: string; nextStatus: JobStatus | null }>> = {
+  'on-site':  { color: 'border-orange-200 bg-orange-50', badge: 'bg-orange-500 text-white',     actionKey: 'jobs.markComplete',  nextStatus: 'done'         },
+  'done':     { color: 'border-violet-200 bg-violet-50', badge: 'bg-violet-600 text-white',     actionKey: 'jobs.sendInvoice',   nextStatus: 'invoice-sent' },
+  'estimate': { color: 'border-blue-200 bg-blue-50',     badge: 'bg-blue-600 text-white',       actionKey: 'jobs.scheduleJob',   nextStatus: 'scheduled'    },
+  'scheduled':{ color: 'border-red-100 bg-red-50',       badge: 'bg-red-500 text-white',        actionKey: 'dash.contactAction', nextStatus: null           },
+};
+
+function QuickActions({ jobs, today, onAdvance, onConvertInvoice }: {
+  jobs: Job[]; today: string;
+  onAdvance: (job: Job, nextStatus: JobStatus) => void;
+  onConvertInvoice: (job: Job) => void;
+}) {
+  const t = useT();
+
+  const actions = useMemo(() => {
+    const list: { job: Job; priority: number }[] = [];
+    jobs.forEach(job => {
+      if (job.status === 'on-site')   list.push({ job, priority: 0 });
+      else if (job.status === 'done') list.push({ job, priority: 1 });
+      else if (job.status === 'scheduled' && job.date < today) list.push({ job, priority: 2 });
+      else if (job.status === 'estimate') list.push({ job, priority: 3 });
+    });
+    return list.sort((a, b) => a.priority - b.priority).slice(0, 6);
+  }, [jobs, today]);
+
+  if (actions.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-5">
+      <h3 className="font-semibold text-gray-900 mb-4">{t('dash.quickActions')}</h3>
+      <div className="space-y-2">
+        {actions.map(({ job }) => {
+          const cfg = QA_STATUS_CFG[job.status];
+          if (!cfg) return null;
+          const isOverdue = job.status === 'scheduled' && job.date < today;
+          const isDone = job.status === 'done';
+          return (
+            <div key={job.id} className={`flex items-center gap-3 p-3 rounded-xl border ${cfg.color} transition-colors`}>
+              <div className={`w-8 h-8 rounded-full ${avatarColor(job.customer)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                {initials(job.customer)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm truncate">{job.customer}</p>
+                <p className="text-xs text-gray-500 truncate">{job.title}</p>
+              </div>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${cfg.badge}`}>
+                {isOverdue ? t('dash.overdue') : t(`status.${job.status}` as Parameters<typeof t>[0])}
+              </span>
+              <div className="flex gap-1.5 flex-shrink-0">
+                {isDone && (
+                  <button onClick={() => onConvertInvoice(job)}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white border border-violet-200 text-violet-600 hover:bg-violet-50 transition-colors whitespace-nowrap">
+                    {t('jobs.convertInvoice')}
+                  </button>
+                )}
+                {!isDone && cfg.nextStatus && (
+                  <button onClick={() => onAdvance(job, cfg.nextStatus!)}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                    {isOverdue ? t('dash.reschedule') : t(cfg.actionKey as Parameters<typeof t>[0])}
+                  </button>
+                )}
+                {isOverdue && (
+                  <a href={`tel:${job.customer}`}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 transition-colors whitespace-nowrap">
+                    {t('dash.callAction')}
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+
 export default function Home() {
   const { data, updateData } = useAuth();
   const t = useT();
   const jobs = data?.jobs ?? [];
   const allCustomers = data?.customers ?? [];
   const today = new Date().toISOString().split('T')[0];
+
+  const todayLabel = useMemo(() => {
+    return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  }, []);
 
   const addCustomer = useCallback((c: Customer) => {
     if (!data) return;
@@ -483,8 +578,9 @@ export default function Home() {
     done: t('status.done'), 'invoice-sent': t('status.invoiceSent'), paid: t('status.paid'),
   };
 
+  // Only show jobs scheduled for today
   const todayJobs = useMemo(
-    () => jobs.filter(j => j.date === today || j.status === 'on-site' || j.status === 'scheduled'),
+    () => jobs.filter(j => j.date === today),
     [jobs, today],
   );
 
@@ -497,12 +593,13 @@ export default function Home() {
 
   const selectedJob = jobs.find(j => j.id === selectedId) ?? null;
 
+  // Today's summary counts only today's jobs
   const stats = useMemo(() => ({
-    scheduled: jobs.filter(j => j.status === 'scheduled').length,
-    onSite:    jobs.filter(j => j.status === 'on-site').length,
-    done:      jobs.filter(j => j.status === 'done').length,
-    estimates: jobs.filter(j => j.status === 'estimate').length,
-  }), [jobs]);
+    scheduled: todayJobs.filter(j => j.status === 'scheduled').length,
+    onSite:    todayJobs.filter(j => j.status === 'on-site').length,
+    done:      todayJobs.filter(j => j.status === 'done').length,
+    estimates: todayJobs.filter(j => j.status === 'estimate').length,
+  }), [todayJobs]);
 
   const recentActivities = useMemo(() => {
     const list: string[] = [];
@@ -548,6 +645,29 @@ export default function Home() {
     setModal('none');
   }, [data, selectedJob, updateData]);
 
+  const convertToInvoice = useCallback((job: Job) => {
+    if (!data) return;
+    const inv: Invoice = {
+      id: uid(),
+      invoiceNumber: invNum(),
+      customer: job.customer,
+      jobTitle: job.title,
+      amount: job.amount || job.estimate,
+      status: 'sent',
+      issueDate: todayStr(),
+      dueDate: dueDateStr(),
+      description: job.notes,
+    };
+    const updatedJobs = data.jobs.map(j => j.id === job.id ? { ...j, status: 'invoice-sent' as JobStatus } : j);
+    updateData({ ...data, jobs: updatedJobs, invoices: [inv, ...data.invoices] });
+    if (selectedJob?.id === job.id) setModal('none');
+  }, [data, selectedJob, updateData]);
+
+  const advanceJobStatus = useCallback((job: Job, nextStatus: JobStatus) => {
+    if (!data) return;
+    updateData({ ...data, jobs: data.jobs.map(j => j.id === job.id ? { ...j, status: nextStatus } : j) });
+  }, [data, updateData]);
+
   return (
     <div className="space-y-5">
       <div>
@@ -562,10 +682,11 @@ export default function Home() {
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-5 items-start">
         {/* Left: Today's Jobs */}
         <div className="bg-white rounded-2xl shadow-sm p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-1">
             <h3 className="font-semibold text-gray-900">{t('dash.todayJobs')}</h3>
             <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">{todayJobs.length}</span>
           </div>
+          <p className="text-xs text-gray-400 mb-4">{todayLabel}</p>
           {todayJobs.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-6">{t('dash.noJobs')}</p>
           ) : (
@@ -605,6 +726,7 @@ export default function Home() {
               customerPhone={(data?.customers ?? []).find(c => c.name === selectedJob.customer)?.phone ?? ''}
               onAddWork={() => setModal('addWork')}
               onNewEstimate={() => setModal('newEstimate')}
+              onConvertToInvoice={() => convertToInvoice(selectedJob)}
               onEdit={() => setModal('editJob')}
               onDelete={() => setModal('confirmDelete')}
             />
@@ -617,10 +739,11 @@ export default function Home() {
 
         {/* Right: Today's Summary */}
         <div className="bg-white rounded-2xl shadow-sm p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-1">
             <h3 className="font-semibold text-gray-900">{t('dash.todaySummary')}</h3>
             <span className="text-xs font-semibold text-green-600 bg-green-50 px-2.5 py-1 rounded-full">{t('dash.live')}</span>
           </div>
+          <p className="text-xs text-gray-400 mb-4">{todayLabel}</p>
           <div className="space-y-3">
             <div className="bg-blue-600 rounded-xl p-4 flex items-center justify-between text-white">
               <span className="text-sm font-semibold">{t('status.scheduled')}</span>
@@ -641,6 +764,14 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Quick Actions */}
+      <QuickActions
+        jobs={jobs}
+        today={today}
+        onAdvance={advanceJobStatus}
+        onConvertInvoice={convertToInvoice}
+      />
 
       {recentActivities.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm p-5">

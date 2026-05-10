@@ -57,8 +57,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [langOpen, setLangOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const createRef = useRef<HTMLDivElement>(null);
 
   const upcomingReminders = useMemo(() => {
     if (!data?.reminders) return 0;
@@ -74,11 +76,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { name: t('nav.dashboard'), href: '/' },
     { name: t('nav.jobs'), href: '/jobs' },
-    { name: t('nav.estimates'), href: '/estimates' },
     { name: t('nav.customers'), href: '/customers' },
     { name: t('nav.schedule'), href: '/schedule' },
     { name: t('nav.invoices'), href: '/invoices' },
   ];
+
+  const handleCreate = (type: 'job' | 'estimate' | 'customer' | 'invoice') => {
+    setCreateOpen(false);
+    sessionStorage.setItem('global-create', JSON.stringify({ type }));
+    const dest = type === 'job' || type === 'estimate' ? '/jobs' : type === 'customer' ? '/customers' : '/invoices';
+    if (pathname === dest) {
+      window.dispatchEvent(new CustomEvent('global-create', { detail: { type } }));
+    } else {
+      router.push(dest);
+    }
+  };
 
   const firstName = user?.name?.split(' ')[0] ?? 'Alex';
   const initials = user?.name
@@ -104,6 +116,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (createRef.current && !createRef.current.contains(e.target as Node)) setCreateOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [createOpen]);
 
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false); }, [pathname]);
@@ -163,7 +184,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               })}
             </nav>
 
-            {/* Right: Bell + Language + User */}
+            {/* Right: Bell + Create+ + Language + User */}
             <div className="flex items-center gap-3">
               {/* Bell notification */}
               <button
@@ -178,6 +199,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </span>
                 )}
               </button>
+              {/* Create+ */}
+              <div className="relative" ref={createRef}>
+                <button
+                  onClick={() => setCreateOpen(o => !o)}
+                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
+                  </svg>
+                  <span className="hidden sm:inline">{t('nav.createNew')}</span>
+                </button>
+                {createOpen && (
+                  <div className="absolute right-0 top-11 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[60] min-w-[180px]">
+                    {[
+                      { type: 'job' as const, label: t('nav.newJob'), icon: '🔧' },
+                      { type: 'estimate' as const, label: t('nav.newEstimate'), icon: '📋' },
+                      { type: 'customer' as const, label: t('nav.newCustomer'), icon: '👤' },
+                      { type: 'invoice' as const, label: t('nav.newInvoice'), icon: '🧾' },
+                    ].map(item => (
+                      <button key={item.type} onClick={() => handleCreate(item.type)}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                        <span>{item.icon}</span>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {/* Language Picker */}
               <div className="relative" ref={langRef}>
                 <button
@@ -233,7 +282,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                       </svg>
-                      Logout
+                      {t('nav.logout')}
                     </button>
                   </div>
                 )}
@@ -297,7 +346,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {/* Language picker in drawer */}
             <div className="px-4 py-3 border-t border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Language</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">{t('nav.language')}</p>
               <div className="grid grid-cols-2 gap-1">
                 {LANGUAGES.map(l => (
                   <button
@@ -333,7 +382,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                 </svg>
-                Logout
+                {t('nav.logout')}
               </button>
             </div>
           </div>

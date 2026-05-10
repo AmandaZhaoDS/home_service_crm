@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
 import { Invoice, InvoiceStatus, PricebookItem, Job, Customer } from '../../lib/fieldproStorage';
@@ -449,11 +449,13 @@ export default function InvoicesPage() {
   const jobs = data?.jobs ?? [];
   const allCustomers = data?.customers ?? [];
 
-  const [view, setView] = useState<'invoices'|'pricebook'>('invoices');
+  const [view, setView] = useState<'invoices'|'pricebook'|'estimates'>('invoices');
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<'none'|'create'|'edit'|'view'>('none');
   const [selected, setSelected] = useState<Invoice|null>(null);
+
+  const estimateJobs = useMemo(() => jobs.filter(j => j.status === 'estimate'), [jobs]);
 
   const FILTER_TABS = [
     {key:'all',label:t('inv.tabAll')},{key:'draft',label:t('inv.tabDraft')},
@@ -509,6 +511,39 @@ export default function InvoicesPage() {
     updateData({...data, pricebook: pb});
   }, [data, updateData]);
 
+  const convertJobToInvoice = useCallback((job: Job) => {
+    if (!data) return;
+    const inv: Invoice = {
+      id: uid(), invoiceNumber: invNum(),
+      customer: job.customer, jobTitle: job.title,
+      amount: job.amount > 0 ? job.amount : job.estimate,
+      status: 'sent',
+      issueDate: todayStr(), dueDate: dueDateStr(),
+      description: job.notes || `Services for ${job.title}`,
+    };
+    updateData({
+      ...data,
+      invoices: [...(data.invoices ?? []), inv],
+      jobs: data.jobs.map(j => j.id === job.id ? {...j, status: 'invoice-sent' as const} : j),
+    });
+  }, [data, updateData]);
+
+  useEffect(() => {
+    const gc = sessionStorage.getItem('global-create');
+    if (gc) {
+      try {
+        const parsed = JSON.parse(gc);
+        if (parsed.type === 'invoice') { sessionStorage.removeItem('global-create'); setModal('create'); setSelected(null); }
+      } catch { sessionStorage.removeItem('global-create'); }
+    }
+    const handler = (e: Event) => {
+      const { type } = (e as CustomEvent<{type:string}>).detail;
+      if (type === 'invoice') { setModal('create'); setSelected(null); }
+    };
+    window.addEventListener('global-create', handler);
+    return () => window.removeEventListener('global-create', handler);
+  }, []);
+
   return (
     <div className="space-y-5">
       {/* Page header with view toggle */}
@@ -517,6 +552,11 @@ export default function InvoicesPage() {
           <button onClick={()=>setView('invoices')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${view==='invoices'?'bg-white text-gray-900 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
             {t('pb.invoicesView')}
+          </button>
+          <button onClick={()=>setView('estimates')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 ${view==='estimates'?'bg-white text-gray-900 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
+            {t('inv.tabEstimates')}
+            {estimateJobs.length > 0 && <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">{estimateJobs.length}</span>}
           </button>
           <button onClick={()=>setView('pricebook')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 ${view==='pricebook'?'bg-white text-gray-900 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
@@ -535,6 +575,37 @@ export default function InvoicesPage() {
       {/* Pricebook view */}
       {view==='pricebook' && (
         <PricebookView pricebook={pricebook} jobs={jobs} onUpdate={updatePricebook}/>
+      )}
+
+      {/* Estimates view */}
+      {view==='estimates' && (
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <p className="text-sm text-gray-500">Jobs with <span className="font-semibold text-indigo-700">estimate</span> status — convert to invoice when approved</p>
+          </div>
+          {estimateJobs.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-sm">{t('inv.noEstimates')}</div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {estimateJobs.map(job => (
+                <div key={job.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{job.customer}</p>
+                    <p className="text-sm text-gray-500 truncate">{job.title}</p>
+                    <p className="text-xs text-gray-400">{job.date}{job.technician ? ` · ${job.technician}` : ''}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-3">
+                    <p className="text-base font-bold text-gray-900">${(job.amount > 0 ? job.amount : job.estimate).toFixed(2)}</p>
+                  </div>
+                  <button onClick={() => convertJobToInvoice(job)}
+                    className="flex-shrink-0 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors whitespace-nowrap">
+                    {t('inv.convertInvoice')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Invoices view */}

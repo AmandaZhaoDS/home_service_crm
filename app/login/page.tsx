@@ -13,9 +13,9 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
 
-  useEffect(() => {
-    if (user) router.replace('/');
-  }, [user, router]);
+  // AuthBoundary also handles this redirect, but we call it directly here too
+  // so the navigation is instant once login() sets the user state.
+  useEffect(() => { if (user) router.replace('/'); }, [user, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -25,10 +25,8 @@ export default function LoginPage() {
     if (!result.success) {
       setError(result.message || 'Login failed.');
       setPending(false);
-      return;
     }
-    // login() already set a placeholder user; the useEffect above will navigate
-    // to '/' once the user state is confirmed — no manual router.push needed.
+    // Navigation is handled by the useEffect below once user state commits.
   };
 
   return (

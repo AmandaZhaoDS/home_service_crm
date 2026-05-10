@@ -16,19 +16,41 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const DEMO_NAMES = ['Jane Smith', 'Mike Johnson', 'Emily Davis'];
+
+function migrateSampleData(data: FieldProData): FieldProData {
+  const needsMigration = data.customers.some(c => DEMO_NAMES.includes(c.name));
+  if (!needsMigration) return data;
+  const rename = (s: string) => DEMO_NAMES.includes(s) ? `[Sample] ${s}` : s;
+  return {
+    ...data,
+    customers: data.customers.map(c => DEMO_NAMES.includes(c.name) ? { ...c, name: `[Sample] ${c.name}` } : c),
+    jobs: data.jobs.map(j => ({ ...j,
+      customer: rename(j.customer),
+      title: DEMO_NAMES.some(n => j.customer === n) && !j.title.startsWith('[Sample]') ? `[Sample] ${j.title}` : j.title,
+    })),
+    invoices: data.invoices.map(inv => ({ ...inv,
+      customer: rename(inv.customer),
+      jobTitle: DEMO_NAMES.some(n => inv.customer === n) && !inv.jobTitle.startsWith('[Sample]') ? `[Sample] ${inv.jobTitle}` : inv.jobTitle,
+    })),
+    appointments: data.appointments.map(a => ({ ...a, customer: rename(a.customer) })),
+  };
+}
+
 async function fetchUserRecord(userId: string, email: string): Promise<{ user: UserAccount; data: FieldProData }> {
   const [{ data: profile }, { data: crmRow }] = await Promise.all([
     supabase.from('profiles').select('name').eq('id', userId).single(),
     supabase.from('user_crm_data').select('data').eq('user_id', userId).single(),
   ]);
 
+  const raw = (crmRow?.data as FieldProData) ?? getDefaultData();
   return {
     user: {
       id: userId,
       name: profile?.name ?? email.split('@')[0],
       email,
     },
-    data: (crmRow?.data as FieldProData) ?? getDefaultData(),
+    data: migrateSampleData(raw),
   };
 }
 
@@ -132,13 +154,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
-    // Set a placeholder immediately so router.push('/') in the login page doesn't
-    // race against the SIGNED_IN event handler and get bounced back to /login.
+    // Set placeholder unconditionally so the login page can safely call
+    // router.replace('/') right after this returns — AuthBoundary will see
+    // user != null and render the dashboard instead of bouncing to /login.
     if (authData.user) {
-      setUser(prev => prev ?? {
-        id: authData.user!.id,
-        name: authData.user!.email!.split('@')[0],
-        email: authData.user!.email!,
+      setUser({
+        id: authData.user.id,
+        name: authData.user.email!.split('@')[0],
+        email: authData.user.email!,
       });
     }
     return { success: true };

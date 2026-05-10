@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem, Reminder, Customer } from '../../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Reminder, Customer, Invoice } from '../../lib/fieldproStorage';
 import Modal from '../../components/Modal';
 import CustomerSearch from '../../components/CustomerSearch';
 
@@ -340,23 +340,50 @@ function JobFormModal({ initial, defaultStatus, allCustomers, pricebook, pastJob
 
 // ─── Job Detail Modal ─────────────────────────────────────────────────────────
 
-function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAddWork, onUpdateJob, onScheduleFollowUp, onAddReminder, onClose }: {
+function JobDetailModal({ job, customerPhone, reminders, pricebook, pastJobs, onEdit, onAdvance, onAddWork, onUpdateJob, onScheduleFollowUp, onAddReminder, onConvertToInvoice, onClose }: {
   job: Job;
   customerPhone: string;
   reminders: Reminder[];
+  pricebook: PricebookItem[];
+  pastJobs: Job[];
   onEdit: () => void;
   onAdvance: () => void;
   onAddWork: (item:{label:string;amount:number;quantity:number}) => void;
   onUpdateJob: (updated: Job) => void;
   onScheduleFollowUp: (job: Job, date: string, time: string, notes: string) => void;
   onAddReminder: (r: Omit<Reminder,'id'|'jobId'|'createdAt'>) => void;
+  onConvertToInvoice: () => void;
   onClose: () => void;
 }) {
   const t = useT();
   const total = job.items.reduce((s,i)=>s+i.amount*(i.quantity??1),0);
   const [addingWork, setAddingWork] = useState(false);
   const [wi, setWi] = useState({label:'',amount:0,quantity:1});
+  const [showWiSugg, setShowWiSugg] = useState(false);
   const [showMap, setShowMap] = useState(false);
+
+  const wiSuggestions = useMemo(() => {
+    const q = wi.label.trim().toLowerCase();
+    if (q.length < 1) return [];
+    type Sugg = { id: string; label: string; amount: number; source: 'pricebook' | 'past' };
+    const results: Sugg[] = [];
+    pricebook.forEach(p => {
+      if (p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q))) {
+        results.push({ id: p.id, label: p.name, amount: p.unitPrice, source: 'pricebook' });
+      }
+    });
+    const seen = new Set(results.map(r => r.label.toLowerCase()));
+    pastJobs.forEach(j => {
+      j.items.forEach(item => {
+        const lbl = item.label.toLowerCase();
+        if (lbl.includes(q) && !seen.has(lbl)) {
+          seen.add(lbl);
+          results.push({ id: `past-${item.id}`, label: item.label, amount: item.amount, source: 'past' });
+        }
+      });
+    });
+    return results.slice(0, 8);
+  }, [wi.label, pricebook, pastJobs]);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [lightbox, setLightbox] = useState<string|null>(null);
 
@@ -422,11 +449,11 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
               <div className="flex gap-1">
                 <button onClick={() => setShowMap(m => !m)}
                   className={`text-xs font-semibold px-2 py-0.5 rounded-lg border transition-colors ${showMap ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                  Map
+                  {t('jobs.map')}
                 </button>
                 <a href={`https://www.google.com/maps?q=${encoded}&layer=c`} target="_blank" rel="noreferrer"
                   className="text-xs font-semibold px-2 py-0.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
-                  Street View
+                  {t('jobs.streetView')}
                 </a>
               </div>
             </div>
@@ -543,7 +570,7 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
         {/* Active reminders for this job */}
         {jobReminders.length > 0 && (
           <div className="mb-5">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Reminders</p>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('jobs.reminders')}</p>
             <div className="space-y-1.5">
               {jobReminders.map(r => (
                 <div key={r.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${r.type==='followup'?'bg-blue-50':'bg-amber-50'}`}>
@@ -564,18 +591,44 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
         {addingWork && (
           <div className="mb-4 bg-blue-50 rounded-xl p-4 space-y-3">
             <p className="text-sm font-semibold text-gray-800">{t('jobs.addWorkTitle')}</p>
+            {/* Description with pricebook / past-job suggestions */}
+            <div className="relative">
+              <input
+                autoFocus
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"
+                placeholder={t('jobs.searchItems')}
+                value={wi.label}
+                onChange={e => { setWi(w=>({...w,label:e.target.value})); setShowWiSugg(true); }}
+                onFocus={() => { if (wi.label.trim()) setShowWiSugg(true); }}
+                onBlur={() => setTimeout(() => setShowWiSugg(false), 150)}
+              />
+              {showWiSugg && wiSuggestions.length > 0 && (
+                <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-100 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                  {wiSuggestions.map(s => (
+                    <button key={s.id}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => { setWi(w=>({...w, label:s.label, amount:s.amount})); setShowWiSugg(false); }}
+                      className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0">
+                      <span className="text-sm text-gray-800 truncate">{s.label}</span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-[10px] text-gray-400 uppercase tracking-wide">{s.source==='pricebook'?'catalog':'past'}</span>
+                        <span className="text-sm font-bold text-blue-600">${s.amount.toFixed(2)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex gap-2">
-              <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Description"
-                value={wi.label} onChange={e=>setWi(w=>({...w,label:e.target.value}))}/>
-              <input type="number" min={0} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$"
+              <input type="number" min={0} className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="$"
                 value={wi.amount||''} onChange={e=>setWi(w=>({...w,amount:Number(e.target.value)}))}/>
-              <input type="number" min={1} className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty"
+              <input type="number" min={1} className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white" placeholder="Qty"
                 value={wi.quantity} onChange={e=>setWi(w=>({...w,quantity:Number(e.target.value)}))}/>
             </div>
             <div className="flex gap-2">
               <button onClick={()=>{ if(wi.label){ onAddWork(wi); setWi({label:'',amount:0,quantity:1}); setAddingWork(false); }}}
                 className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-blue-700 transition-colors">{t('common.save')}</button>
-              <button onClick={()=>setAddingWork(false)}
+              <button onClick={()=>{ setAddingWork(false); setShowWiSugg(false); }}
                 className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
             </div>
           </div>
@@ -584,7 +637,7 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
         {/* Schedule Follow-up */}
         {showFollowUp && (
           <div className="mb-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-semibold text-indigo-800">Schedule Follow-up Visit</p>
+            <p className="text-sm font-semibold text-indigo-800">{t('jobs.followUpTitle')}</p>
             <div className="grid grid-cols-2 gap-2">
               <input type="date" value={fuDate} onChange={e=>setFuDate(e.target.value)}
                 className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
@@ -592,12 +645,12 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
                 className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
             </div>
             <input value={fuNotes} onChange={e=>setFuNotes(e.target.value)}
-              placeholder="What needs to be done next visit?"
+              placeholder={t('jobs.followUpPlaceholder')}
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
             <div className="flex gap-2">
               <button onClick={handleScheduleFollowUp} disabled={!fuDate}
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                Schedule &amp; Remind
+                {t('jobs.scheduleRemind')}
               </button>
               <button onClick={()=>setShowFollowUp(false)}
                 className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
@@ -608,19 +661,19 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
         {/* Parts reminder */}
         {showParts && (
           <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-semibold text-amber-800">Parts Tracking Reminder</p>
+            <p className="text-sm font-semibold text-amber-800">{t('jobs.partsTitle')}</p>
             <input value={partsDesc} onChange={e=>setPartsDesc(e.target.value)}
-              placeholder="e.g. Water pump filter, replacement faucet…"
+              placeholder={t('jobs.partsPlaceholder')}
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-amber-700 font-medium whitespace-nowrap">ETA / Check by:</label>
+              <label className="text-xs text-amber-700 font-medium whitespace-nowrap">{t('jobs.etaLabel')}</label>
               <input type="date" value={partsETA} onChange={e=>setPartsETA(e.target.value)}
                 className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white"/>
             </div>
             <div className="flex gap-2">
               <button onClick={handleAddPartsReminder} disabled={!partsDesc || !partsETA}
                 className="flex-1 bg-amber-500 text-white text-sm font-semibold py-2 rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-colors">
-                Add Reminder
+                {t('jobs.addReminder')}
               </button>
               <button onClick={()=>setShowParts(false)}
                 className="flex-1 border border-gray-200 text-gray-600 text-sm font-semibold py-2 rounded-xl hover:bg-gray-50 transition-colors">{t('common.cancel')}</button>
@@ -634,12 +687,18 @@ function JobDetailModal({ job, customerPhone, reminders, onEdit, onAdvance, onAd
           <button onClick={()=>setAddingWork(true)} className="border border-blue-200 text-blue-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors">{t('jobs.addWork')}</button>
           <button onClick={()=>{ setShowFollowUp(f=>!f); setShowParts(false); }}
             className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showFollowUp?'border-indigo-300 bg-indigo-50 text-indigo-700':'border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}>
-            📅 Follow-up
+            📅 {t('jobs.followUp')}
           </button>
           <button onClick={()=>{ setShowParts(p=>!p); setShowFollowUp(false); }}
             className={`border text-sm font-semibold px-3 py-2.5 rounded-xl transition-colors ${showParts?'border-amber-300 bg-amber-50 text-amber-700':'border-amber-200 text-amber-600 hover:bg-amber-50'}`}>
-            📦 Parts
+            📦 {t('jobs.parts')}
           </button>
+          {job.status !== 'invoice-sent' && job.status !== 'paid' && (
+            <button onClick={onConvertToInvoice}
+              className="border border-violet-200 text-violet-600 text-sm font-semibold px-3 py-2.5 rounded-xl hover:bg-violet-50 transition-colors">
+              {t('jobs.convertInvoice')}
+            </button>
+          )}
           {nextLabel && NEXT_MAP[job.status] && (
             <button onClick={onAdvance} className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors min-w-[120px]">{nextLabel}</button>
           )}
@@ -697,6 +756,15 @@ export default function JobsPage() {
 
   useEffect(() => {
     if (!data) return;
+    // Handle global Create+ navigation
+    const gc = sessionStorage.getItem('global-create');
+    if (gc) {
+      try {
+        const parsed = JSON.parse(gc);
+        if (parsed.type === 'job') { sessionStorage.removeItem('global-create'); setModal('create'); setSelected(null); }
+        else if (parsed.type === 'estimate') { sessionStorage.removeItem('global-create'); setModal('estimate'); setSelected(null); }
+      } catch { sessionStorage.removeItem('global-create'); }
+    }
     const cmd = sessionStorage.getItem('voice-nav');
     if (cmd) {
       try {
@@ -801,6 +869,26 @@ export default function JobsPage() {
       createdAt: new Date().toISOString().split('T')[0],
     };
     updateData({...data, reminders: [...(data.reminders ?? []), reminder]});
+  }, [data, updateData]);
+
+  const convertToInvoice = useCallback((job: Job) => {
+    if (!data) return;
+    const inv: Invoice = {
+      id: uid(), invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      customer: job.customer, jobTitle: job.title,
+      amount: job.amount > 0 ? job.amount : job.estimate,
+      status: 'sent',
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now()+14*86400000).toISOString().split('T')[0],
+      description: job.notes || `Services for ${job.title}`,
+    };
+    const updatedJob = {...job, status: 'invoice-sent' as JobStatus};
+    updateData({
+      ...data,
+      jobs: data.jobs.map(j => j.id === job.id ? updatedJob : j),
+      invoices: [...(data.invoices ?? []), inv],
+    });
+    setSelected(updatedJob);
   }, [data, updateData]);
 
   // Suppress unused import warning for useRef
@@ -989,12 +1077,15 @@ export default function JobsPage() {
           job={selected}
           customerPhone={(data?.customers??[]).find(c=>c.name===selected.customer)?.phone??''}
           reminders={reminders}
+          pricebook={pricebook}
+          pastJobs={jobs.filter(j=>j.id!==selected.id)}
           onEdit={()=>setModal('edit')}
           onAdvance={()=>advanceStatus(selected)}
           onAddWork={item=>addWorkItem(selected,item)}
           onUpdateJob={updateJob}
           onScheduleFollowUp={scheduleFollowUp}
           onAddReminder={r=>addReminder(selected,r)}
+          onConvertToInvoice={()=>convertToInvoice(selected)}
           onClose={()=>{setModal('none');setSelected(null);}}/>
       )}
     </div>

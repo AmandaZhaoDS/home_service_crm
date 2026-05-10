@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../components/AuthProvider';
 import { useT } from '../../lib/i18n';
 import { Customer, CustomerAttachment } from '../../lib/fieldproStorage';
@@ -103,10 +104,11 @@ function CustomerFormModal({ initial, onSave, onClose }: {
   );
 }
 
-function CustomerDetailModal({ customer, jobs, onEdit, onUpdate, onClose }: {
+function CustomerDetailModal({ customer, jobs, onEdit, onUpdate, onNewJob, onNewInvoice, onClose }: {
   customer: Customer;
   jobs: { title:string; status:string; date:string; amount:number }[];
-  onEdit: ()=>void; onUpdate: (c: Customer) => void; onClose: ()=>void;
+  onEdit: ()=>void; onUpdate: (c: Customer) => void;
+  onNewJob: ()=>void; onNewInvoice: ()=>void; onClose: ()=>void;
 }) {
   const t = useT();
   const totalSpent = jobs.filter(j=>j.status==='paid').reduce((s,j)=>s+j.amount,0);
@@ -241,9 +243,17 @@ function CustomerDetailModal({ customer, jobs, onEdit, onUpdate, onClose }: {
           )}
         </div>
 
-        <button onClick={onEdit} className="w-full border border-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
-          {t('cust.edit')}
-        </button>
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={onEdit} className="border border-gray-200 text-gray-700 text-sm font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+            {t('cust.edit')}
+          </button>
+          <button onClick={onNewJob} className="bg-blue-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-blue-700 transition-colors">
+            {t('cust.newJob')}
+          </button>
+          <button onClick={onNewInvoice} className="bg-violet-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-violet-700 transition-colors">
+            {t('cust.newInvoice')}
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -252,6 +262,7 @@ function CustomerDetailModal({ customer, jobs, onEdit, onUpdate, onClose }: {
 export default function CustomersPage() {
   const { user, data, updateData } = useAuth();
   const t = useT();
+  const router = useRouter();
   const customers = data?.customers ?? [];
   const jobs = data?.jobs ?? [];
 
@@ -375,6 +386,34 @@ export default function CustomersPage() {
     updateData({ ...data, customers: data.customers.map(x => x.id === c.id ? c : x) });
     setSelected(c);
   };
+
+  const createJobForCustomer = useCallback((customerName: string) => {
+    setModal('none');
+    sessionStorage.setItem('global-create', JSON.stringify({ type: 'job', customer: customerName }));
+    router.push('/jobs');
+  }, [router]);
+
+  const createInvoiceForCustomer = useCallback((customerName: string) => {
+    setModal('none');
+    sessionStorage.setItem('global-create', JSON.stringify({ type: 'invoice', customer: customerName }));
+    router.push('/invoices');
+  }, [router]);
+
+  useEffect(() => {
+    const gc = sessionStorage.getItem('global-create');
+    if (gc) {
+      try {
+        const parsed = JSON.parse(gc);
+        if (parsed.type === 'customer') { sessionStorage.removeItem('global-create'); setModal('create'); setSelected(null); }
+      } catch { sessionStorage.removeItem('global-create'); }
+    }
+    const handler = (e: Event) => {
+      const { type } = (e as CustomEvent<{type:string}>).detail;
+      if (type === 'customer') { setModal('create'); setSelected(null); }
+    };
+    window.addEventListener('global-create', handler);
+    return () => window.removeEventListener('global-create', handler);
+  }, []);
 
   const totalRevenue = customers.reduce((s,c)=>{
     return s + jobs.filter(j=>j.customer===c.name&&j.status==='paid').reduce((a,j)=>a+j.amount,0);
@@ -548,6 +587,8 @@ export default function CustomersPage() {
           jobs={jobs.filter(j=>j.customer===selected.name).map(j=>({title:j.title,status:j.status,date:j.date,amount:j.amount}))}
           onEdit={()=>setModal('edit')}
           onUpdate={updateCustomer}
+          onNewJob={()=>createJobForCustomer(selected.name)}
+          onNewInvoice={()=>createInvoiceForCustomer(selected.name)}
           onClose={()=>{setModal('none');setSelected(null);}}/>
       )}
       {showImportModal && (

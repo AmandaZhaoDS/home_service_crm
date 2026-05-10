@@ -15,9 +15,7 @@ export default function AuthBoundary({ children }: { children: React.ReactNode }
       router.replace('/login');
     }
 
-    // Only redirect logged-in users away from /login, not /register
-    // (register page handles its own post-registration navigation via step 2)
-    if (!loading && user && pathname.startsWith('/login')) {
+    if (!loading && user && (pathname.startsWith('/login') || pathname.startsWith('/register'))) {
       router.replace('/');
     }
   }, [loading, user, pathname, router]);
