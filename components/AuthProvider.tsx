@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(prev => prev ?? { id: sess.id, name: sess.email.split('@')[0], email: sess.email });
         fetchUserRecord(sess.id, sess.email)
           .then(record => { setUser(record.user); setData(record.data); setLoading(false); })
-          .catch(() => { setLoading(false); });
+          .catch(() => { setData(getDefaultData()); setLoading(false); });
       } else {
         setLoading(false);
       }
