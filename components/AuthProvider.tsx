@@ -73,12 +73,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resolved = true;
       clearTimeout(loadingTimerId);
       if (sess) {
-        // Show a minimal placeholder user immediately so any user-dependent
-        // rendering can start, but keep loading=true until CRM data arrives.
-        setUser(prev => prev ?? { id: sess.id, name: sess.email.split('@')[0], email: sess.email });
+        // Do NOT set a placeholder user here — set user+data together only after
+        // the fetch so the loading guard (loading && !user) holds until data is ready.
+        // A 7-second per-fetch fallback ensures loading can never get permanently stuck
+        // (e.g. Vercel cold start, Supabase timeout) even after the outer timer is spent.
+        const fetchFallback = setTimeout(() => {
+          setUser({ id: sess.id, name: sess.email.split('@')[0], email: sess.email });
+          setData(getDefaultData());
+          setLoading(false);
+        }, 7000);
         fetchUserRecord(sess.id, sess.email)
-          .then(record => { setUser(record.user); setData(record.data); setLoading(false); })
-          .catch(() => { setData(getDefaultData()); setLoading(false); });
+          .then(record => {
+            clearTimeout(fetchFallback);
+            setUser(record.user);
+            setData(record.data);
+            setLoading(false);
+          })
+          .catch(() => {
+            clearTimeout(fetchFallback);
+            setUser({ id: sess.id, name: sess.email.split('@')[0], email: sess.email });
+            setData(getDefaultData());
+            setLoading(false);
+          });
       } else {
         setLoading(false);
       }
