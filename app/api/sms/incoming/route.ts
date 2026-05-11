@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     console.log(`[SMS] Routed to user=${userId} | From=${from} | Body=${body.slice(0, 80)}`);
 
     // ── AI extraction + CRM update ─────────────────────────────────────────
-    const extraction = await extractJobFromSMS(from, body, mediaUrls);
+    const extraction = await extractJobFromSMS(body, from, mediaUrls);
 
     const { data: userData } = await supabase
       .from('user_crm_data')
@@ -114,10 +114,11 @@ export async function POST(request: NextRequest) {
     newJob.customer = customer.name;
     crmData.jobs.push(newJob);
 
-    await supabase
+    const { error: saveErr } = await supabase
       .from('user_crm_data')
-      .update({ data: crmData, updated_at: new Date().toISOString() })
+      .update({ data: crmData })
       .eq('user_id', userId);
+    if (saveErr) console.error('[SMS] Failed to save CRM data:', saveErr.message);
 
     // ── Confirmation SMS ───────────────────────────────────────────────────
     const confirmMsg = generateConfirmationSMS(extraction);

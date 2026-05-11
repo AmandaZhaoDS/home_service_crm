@@ -559,7 +559,7 @@ function QuickActions({ jobs, today, onAdvance, onConvertInvoice }: {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Home() {
-  const { user, data, updateData } = useAuth();
+  const { user, data, updateData, refreshUser } = useAuth();
   const t = useT();
   const jobs = data?.jobs ?? [];
   const allCustomers = data?.customers ?? [];
@@ -568,6 +568,10 @@ export default function Home() {
   const todayLabel = useMemo(() => {
     return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   }, []);
+
+  // Refresh from DB every time the dashboard mounts so SMS-created jobs appear
+  // without requiring a full page reload.
+  useEffect(() => { refreshUser(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const addCustomer = useCallback((c: Customer) => {
     if (!data) return;
