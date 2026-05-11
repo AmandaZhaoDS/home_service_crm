@@ -38,19 +38,23 @@ function migrateSampleData(data: FieldProData): FieldProData {
   };
 }
 
-async function fetchUserRecord(userId: string, email: string): Promise<{ user: UserAccount; data: FieldProData }> {
-  // Get the current session token so the server-side route can verify identity.
-  // Using the admin-backed /api/user/sync avoids the RLS timing issue where
-  // auth.uid() is not yet set on the anon client during auth initialisation.
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error('No active session');
-
+// Fetch via admin-backed API route so RLS timing never blocks the read.
+// accessToken is passed in directly from the auth event — avoids a second
+// getSession() call which can return a stale/expired token on first load.
+async function fetchUserRecord(
+  userId: string,
+  email: string,
+  accessToken: string,
+): Promise<{ user: UserAccount; data: FieldProData }> {
   const res = await fetch('/api/user/sync', {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status.toString());
+    console.error('[Auth] /api/user/sync failed:', res.status, text);
+    throw new Error(`Sync failed: ${res.status}`);
+  }
   const json = await res.json() as { name: string; crmData: FieldProData | null; smsPhone: string | null };
 
   return {
@@ -68,41 +72,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserAccount | null>(null);
   const [data, setData] = useState<FieldProData | null>(null);
   const [loading, setLoading] = useState(true);
-  // Tracks when the user just registered so a SIGNED_OUT event (e.g. from an
-  // unconfirmed email flow) doesn't immediately evict the manually-set user.
   const justRegistered = useRef(false);
+  // True only after a successful fetchUserRecord completes.
+  // updateData is blocked until this is set so that a cold-start fallback
+  // (which sets data=null) can never trigger a DB write that overwrites real records.
+  const dataFromDB = useRef(false);
 
   useEffect(() => {
-    // resolved tracks whether we've committed to a loaded state (user or no user).
-    // Only the first call to resolve() takes effect; subsequent calls are no-ops.
     let resolved = false;
     let loadingTimerId: ReturnType<typeof setTimeout>;
 
-    const resolve = (sess: { id: string; email: string } | null) => {
+    const resolve = (sess: { id: string; email: string; token: string } | null) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(loadingTimerId);
       if (sess) {
-        // Do NOT set a placeholder user here — set user+data together only after
-        // the fetch so the loading guard (loading && !user) holds until data is ready.
-        // A 7-second per-fetch fallback ensures loading can never get permanently stuck
-        // (e.g. Vercel cold start, Supabase timeout) even after the outer timer is spent.
+        // Safety fallback: if the API never responds (e.g. Vercel cold start > 30s)
+        // unblock loading but leave data=null so updateData stays blocked.
         const fetchFallback = setTimeout(() => {
           setUser({ id: sess.id, name: sess.email.split('@')[0], email: sess.email });
-          setData(getDefaultData());
           setLoading(false);
-        }, 7000);
-        fetchUserRecord(sess.id, sess.email)
+          // data stays null — updateData will not write to DB
+        }, 30_000);
+
+        fetchUserRecord(sess.id, sess.email, sess.token)
           .then(record => {
             clearTimeout(fetchFallback);
+            dataFromDB.current = true;
             setUser(record.user);
             setData(record.data);
             setLoading(false);
           })
-          .catch(() => {
+          .catch(err => {
             clearTimeout(fetchFallback);
+            console.error('[Auth] fetchUserRecord failed:', err);
             setUser({ id: sess.id, name: sess.email.split('@')[0], email: sess.email });
-            setData(getDefaultData());
+            // Keep data=null — do NOT fall back to getDefaultData() here because
+            // any updateData call that runs before a successful fetch would write
+            // sample data to the DB and overwrite the user's real records.
             setLoading(false);
           });
       } else {
@@ -110,17 +117,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Safety net: if both onAuthStateChange and getSession() hang (e.g. slow network),
-    // force-clear loading after 8 s so the user is never permanently stuck.
     loadingTimerId = setTimeout(() => resolve(null), 8000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
-        // Don't clear a manually-set user immediately after registration
-        // (some Supabase setups fire SIGNED_OUT for unconfirmed-email accounts).
         if (!justRegistered.current) {
           setUser(null);
           setData(null);
+          dataFromDB.current = false;
         }
         resolve(null);
         return;
@@ -128,35 +132,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (event === 'INITIAL_SESSION') {
         if (session) {
-          // Non-expired session — fast path: resolve immediately.
-          resolve({ id: session.user.id, email: session.user.email! });
+          resolve({ id: session.user.id, email: session.user.email!, token: session.access_token });
         }
-        // session is null: access token is expired and Supabase is refreshing it.
-        // Don't resolve yet — TOKEN_REFRESHED or getSession() below will handle it.
         return;
       }
 
       if (!session) return;
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        // Covers the token-refresh path: resolve with the refreshed session.
-        resolve({ id: session.user.id, email: session.user.email! });
+        resolve({ id: session.user.id, email: session.user.email!, token: session.access_token });
         try {
-          const record = await fetchUserRecord(session.user.id, session.user.email!);
+          const record = await fetchUserRecord(session.user.id, session.user.email!, session.access_token);
+          dataFromDB.current = true;
           setUser(record.user);
           setData(record.data);
         } catch { /* keep existing state */ }
       }
     });
 
-    // getSession() performs token refresh when the access token is expired.
-    // It runs concurrently with onAuthStateChange and wins if INITIAL_SESSION
-    // fired with null (expired token case). resolve() is idempotent so there
-    // is no double-init if TOKEN_REFRESHED also fires.
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         if (session) {
-          resolve({ id: session.user.id, email: session.user.email! });
+          resolve({ id: session.user.id, email: session.user.email!, token: session.access_token });
         } else {
           resolve(null);
         }
@@ -169,17 +166,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
-    if (authData.user) {
-      setUser({
-        id: authData.user.id,
-        name: authData.user.email!.split('@')[0],
-        email: authData.user.email!,
-      });
-      // Start loading full profile + CRM data immediately so it's ready by
-      // the time the user reaches the dashboard. The SIGNED_IN event handler
-      // also does this; the second fetch is a no-op if data arrives first.
-      fetchUserRecord(authData.user.id, authData.user.email!)
-        .then(record => { setUser(record.user); setData(record.data); })
+    if (authData.user && authData.session) {
+      setUser({ id: authData.user.id, name: authData.user.email!.split('@')[0], email: authData.user.email! });
+      fetchUserRecord(authData.user.id, authData.user.email!, authData.session.access_token)
+        .then(record => { dataFromDB.current = true; setUser(record.user); setData(record.data); })
         .catch(() => {});
     }
     return { success: true };
@@ -197,15 +187,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.from('user_crm_data').insert({ user_id: userId, data: defaultData }),
     ]);
 
-    // Protect the manually-set user from a spurious SIGNED_OUT that some Supabase
-    // configurations fire when email confirmation is pending.
     justRegistered.current = true;
     setTimeout(() => { justRegistered.current = false; }, 30_000);
 
+    dataFromDB.current = true;
     setUser({ id: userId, name, email });
     setData(defaultData);
 
-    // Provision a dedicated Twilio number in the background — don't block registration UI
     fetch('/api/twilio/provision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -221,16 +209,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    // Clear state immediately for instant navigation; signOut cleans up the session.
     setUser(null);
     setData(null);
+    dataFromDB.current = false;
     supabase.auth.signOut();
   };
 
   const refreshUser = useCallback(async () => {
     if (!user) return;
     try {
-      const record = await fetchUserRecord(user.id, user.email);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const record = await fetchUserRecord(user.id, user.email, session.access_token);
+      dataFromDB.current = true;
       setUser(record.user);
       setData(record.data);
     } catch { /* ignore */ }
@@ -238,7 +229,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateData = useCallback(
     (nextData: FieldProData) => {
-      if (!user) return;
+      // Block writes until we have confirmed data from DB.
+      // This prevents a cold-start fallback from overwriting real records with sample data.
+      if (!user || !dataFromDB.current) {
+        console.warn('[Auth] updateData blocked — DB data not yet loaded');
+        return;
+      }
       setData(nextData);
       supabase
         .from('user_crm_data')
