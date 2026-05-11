@@ -48,6 +48,7 @@ async function fetchUserRecord(userId: string, email: string): Promise<{ user: U
 
   const res = await fetch('/api/user/sync', {
     headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
   });
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
   const json = await res.json() as { name: string; crmData: FieldProData | null; smsPhone: string | null };

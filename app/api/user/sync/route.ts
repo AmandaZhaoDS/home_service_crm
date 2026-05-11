@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/user/sync
  * Server-side read of a user's profile + CRM data using the admin client,
@@ -25,9 +27,12 @@ export async function GET(request: NextRequest) {
     supabase.from('twilio_numbers').select('phone_number').eq('user_id', user.id).maybeSingle(),
   ]);
 
-  return NextResponse.json({
-    name: profile?.name ?? user.email!.split('@')[0],
-    crmData: crmRow?.data ?? null,
-    smsPhone: phoneRow?.phone_number ?? null,
-  });
+  return NextResponse.json(
+    {
+      name: profile?.name ?? user.email!.split('@')[0],
+      crmData: crmRow?.data ?? null,
+      smsPhone: phoneRow?.phone_number ?? null,
+    },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }
