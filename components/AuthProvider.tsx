@@ -39,10 +39,9 @@ function migrateSampleData(data: FieldProData): FieldProData {
 }
 
 async function fetchUserRecord(userId: string, email: string): Promise<{ user: UserAccount; data: FieldProData }> {
-  const [{ data: profile }, { data: crmRow }, { data: phoneRow }] = await Promise.all([
-    supabase.from('profiles').select('name').eq('id', userId).single(),
+  const [{ data: profile }, { data: crmRow }] = await Promise.all([
+    supabase.from('profiles').select('name, sms_phone').eq('id', userId).single(),
     supabase.from('user_crm_data').select('data').eq('user_id', userId).single(),
-    supabase.from('twilio_numbers').select('phone_number').eq('user_id', userId).maybeSingle(),
   ]);
 
   const raw = (crmRow?.data as FieldProData) ?? getDefaultData();
@@ -51,7 +50,7 @@ async function fetchUserRecord(userId: string, email: string): Promise<{ user: U
       id: userId,
       name: profile?.name ?? email.split('@')[0],
       email,
-      smsPhone: phoneRow?.phone_number ?? undefined,
+      smsPhone: (profile as { name?: string; sms_phone?: string } | null)?.sms_phone ?? undefined,
     },
     data: migrateSampleData(raw),
   };
