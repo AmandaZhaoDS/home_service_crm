@@ -39,20 +39,27 @@ function migrateSampleData(data: FieldProData): FieldProData {
 }
 
 async function fetchUserRecord(userId: string, email: string): Promise<{ user: UserAccount; data: FieldProData }> {
-  const [{ data: profile }, { data: crmRow }] = await Promise.all([
-    supabase.from('profiles').select('name, sms_phone').eq('id', userId).single(),
-    supabase.from('user_crm_data').select('data').eq('user_id', userId).single(),
-  ]);
+  // Get the current session token so the server-side route can verify identity.
+  // Using the admin-backed /api/user/sync avoids the RLS timing issue where
+  // auth.uid() is not yet set on the anon client during auth initialisation.
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error('No active session');
 
-  const raw = (crmRow?.data as FieldProData) ?? getDefaultData();
+  const res = await fetch('/api/user/sync', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
+  const json = await res.json() as { name: string; crmData: FieldProData | null; smsPhone: string | null };
+
   return {
     user: {
       id: userId,
-      name: profile?.name ?? email.split('@')[0],
+      name: json.name,
       email,
-      smsPhone: (profile as { name?: string; sms_phone?: string } | null)?.sms_phone ?? undefined,
+      smsPhone: json.smsPhone ?? undefined,
     },
-    data: migrateSampleData(raw),
+    data: migrateSampleData(json.crmData ?? getDefaultData()),
   };
 }
 

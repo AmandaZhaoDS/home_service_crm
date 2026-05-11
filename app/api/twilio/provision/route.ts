@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
           { user_id: userId, phone_number: already.phone_number, twilio_sid: already.sid, label: 'Business Line' },
           { onConflict: 'user_id' }
         );
-        await supabase.from('profiles').update({ sms_phone: already.phone_number }).eq('id', userId);
         console.log(`[Provision] Re-synced existing number ${already.phone_number} → user ${userId}`);
         return NextResponse.json({ phoneNumber: already.phone_number });
       }
@@ -109,9 +108,6 @@ export async function POST(request: NextRequest) {
       { onConflict: 'user_id' }
     );
     if (dbErr) console.error('[Provision] DB upsert failed:', dbErr.message, '— run the twilio_numbers SQL migration');
-
-    // Also store in profiles so fetchUserRecord can read it without RLS timing issues
-    await supabase.from('profiles').update({ sms_phone: phoneNumber }).eq('id', userId);
 
     console.log(`[Provision] Assigned ${phoneNumber} (${twilioSid}) → user ${userId}`);
     return NextResponse.json({ phoneNumber });
