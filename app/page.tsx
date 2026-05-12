@@ -594,6 +594,26 @@ export default function Home() {
   const [followUpStatus, setFollowUpStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [followUpResult, setFollowUpResult] = useState<string>('');
 
+  // Quick-edit state for SMS notification cards
+  const [smsEditJobId, setSmsEditJobId] = useState<string | null>(null);
+  const [smsEditName, setSmsEditName] = useState('');
+  const [smsEditTitle, setSmsEditTitle] = useState('');
+  const smsEditJob = smsEditJobId ? jobs.find(j => j.id === smsEditJobId) ?? null : null;
+
+  const saveSmsEdit = useCallback(() => {
+    if (!data || !smsEditJob) return;
+    const newName = smsEditName.trim() || smsEditJob.customer;
+    const newTitle = smsEditTitle.trim() || smsEditJob.title;
+    const updatedJobs = data.jobs.map(j =>
+      j.id === smsEditJob.id ? { ...j, title: newTitle, customer: newName } : j
+    );
+    const updatedCustomers = data.customers.map(c =>
+      c.name === smsEditJob.customer ? { ...c, name: newName } : c
+    );
+    updateData({ ...data, jobs: updatedJobs, customers: updatedCustomers });
+    setSmsEditJobId(null);
+  }, [data, smsEditJob, smsEditName, smsEditTitle, updateData]);
+
   useEffect(() => {
     if (!selectedId && todayJobs.length > 0) setSelectedId(todayJobs[0].id);
   }, [todayJobs, selectedId]);
@@ -710,7 +730,7 @@ export default function Home() {
         <p className="text-sm text-gray-500 mt-1">{t('dash.subtitle')}</p>
       </div>
 
-      {/* SMS Job Alerts — new requests from customers via SMS */}
+      {/* SMS Job Alerts */}
       {(() => {
         const smsJobs = jobs.filter(j => (j as Job & { smsSource?: boolean }).smsSource && j.status === 'estimate');
         if (!smsJobs.length) return null;
@@ -722,31 +742,83 @@ export default function Home() {
               <span className="text-xs text-orange-600 ml-auto">Needs review</span>
             </div>
             <div className="space-y-2">
-              {smsJobs.slice(0, 3).map(j => {
+              {smsJobs.slice(0, 5).map(j => {
                 const smsJob = j as Job & { smsSource?: boolean; incomingMessageText?: string; urgencyLevel?: string };
+                const isEditing = smsEditJobId === j.id;
                 return (
-                  <div key={j.id} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-orange-100">
-                    <div className={`w-8 h-8 rounded-full ${avatarColor(j.customer)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
-                      {initials(j.customer)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{j.customer}</p>
-                      {smsJob.incomingMessageText && (
-                        <p className="text-xs text-gray-500 truncate italic">"{smsJob.incomingMessageText}"</p>
-                      )}
-                    </div>
-                    {smsJob.urgencyLevel && smsJob.urgencyLevel !== 'medium' && (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${smsJob.urgencyLevel === 'emergency' || smsJob.urgencyLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {smsJob.urgencyLevel}
-                      </span>
+                  <div key={j.id} className="bg-white rounded-xl border border-orange-100 overflow-hidden">
+                    {/* Collapsed row */}
+                    {!isEditing && (
+                      <div className="flex items-center gap-3 px-3 py-2.5">
+                        <div className={`w-8 h-8 rounded-full ${avatarColor(j.customer)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                          {initials(j.customer)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{j.customer}</p>
+                          {smsJob.incomingMessageText && (
+                            <p className="text-xs text-gray-500 truncate italic">"{smsJob.incomingMessageText}"</p>
+                          )}
+                        </div>
+                        {smsJob.urgencyLevel && smsJob.urgencyLevel !== 'medium' && (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${smsJob.urgencyLevel === 'emergency' || smsJob.urgencyLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {smsJob.urgencyLevel}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => { setSmsEditJobId(j.id); setSmsEditName(j.customer); setSmsEditTitle(j.title); }}
+                          className="text-xs font-semibold px-2.5 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg transition-colors flex-shrink-0">
+                          Edit
+                        </button>
+                        <a href="/jobs" className="text-xs font-semibold px-2.5 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition-colors flex-shrink-0">
+                          View
+                        </a>
+                      </div>
                     )}
-                    <a href="/jobs" className="text-xs font-semibold px-2.5 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition-colors flex-shrink-0">
-                      Review
-                    </a>
+                    {/* Inline edit panel */}
+                    {isEditing && (
+                      <div className="p-3 space-y-2">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quick Edit</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-500 mb-0.5 block">Customer Name</label>
+                            <input
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+                              value={smsEditName}
+                              onChange={e => setSmsEditName(e.target.value)}
+                              placeholder="e.g. Amanda"
+                              autoFocus
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-0.5 block">Job Title</label>
+                            <input
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+                              value={smsEditTitle}
+                              onChange={e => setSmsEditTitle(e.target.value)}
+                              placeholder="e.g. Kitchen Sink Repair"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={saveSmsEdit}
+                            className="flex-1 bg-blue-600 text-white text-xs font-semibold py-1.5 rounded-lg hover:bg-blue-700 transition-colors">
+                            Save
+                          </button>
+                          <a href="/jobs"
+                            className="flex-1 text-center bg-orange-100 text-orange-700 text-xs font-semibold py-1.5 rounded-lg hover:bg-orange-200 transition-colors">
+                            Open in Jobs
+                          </a>
+                          <button onClick={() => setSmsEditJobId(null)}
+                            className="px-3 text-gray-400 hover:text-gray-600 text-xs transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              {smsJobs.length > 3 && <p className="text-xs text-orange-600 text-center">+{smsJobs.length - 3} more in Jobs page</p>}
+              {smsJobs.length > 5 && <p className="text-xs text-orange-600 text-center">+{smsJobs.length - 5} more in Jobs page</p>}
             </div>
           </div>
         );

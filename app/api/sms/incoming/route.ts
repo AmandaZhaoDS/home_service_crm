@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import {
-  extractJobFromSMS,
-  generateConfirmationSMS,
+  processIncomingSMS,
   createJobFromExtraction,
   createCustomerFromExtraction,
 } from '@/lib/smsProcessing';
@@ -13,25 +12,22 @@ const TWIML_OK = new Response('<?xml version="1.0"?><Response></Response>', {
 
 /**
  * POST /api/sms/incoming
- * Twilio webhook — single shared number for all JobPilot users.
+ * Twilio webhook — receives customer SMS messages.
  *
- * Routing strategy:
- *   1. ?userId= query param        → dev/testing override
- *   2. From phone number match     → find which user already has this customer
- *   3. MessagingServiceSid / To    → twilio_numbers table (if per-user numbers ever added)
- *   4. DEFAULT_USER_ID env var     → catch-all for unrecognized senders (single-tenant / demo)
- *
- * This means new users never need to configure anything — messages route
- * automatically based on who the sender already is.
+ * Routing strategy (first match wins):
+ *   1. ?userId= query param             → dev/testing override
+ *   2. From phone match in customer list → route to owner of that customer
+ *   3. MessagingServiceSid / To          → twilio_numbers table lookup
+ *   4. DEFAULT_SMS_USER_ID env var       → single-tenant / demo catch-all
  */
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const from        = formData.get('From')               as string;
-    const body        = formData.get('Body')               as string;
-    const to          = formData.get('To')                 as string;
-    const msgSvcSid   = formData.get('MessagingServiceSid') as string;
-    const mediaCount  = parseInt(formData.get('NumMedia') as string) || 0;
+    const from      = formData.get('From')                as string;
+    const body      = formData.get('Body')                as string;
+    const to        = formData.get('To')                  as string;
+    const msgSvcSid = formData.get('MessagingServiceSid') as string;
+    const mediaCount = parseInt(formData.get('NumMedia') as string) || 0;
 
     const mediaUrls: string[] = [];
     for (let i = 0; i < mediaCount; i++) {
@@ -44,18 +40,13 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     let userId: string | null = request.nextUrl.searchParams.get('userId');
 
-    // ── 1. Route by customer phone match (shared-number model) ─────────────
+    // ── 1. Route by customer phone match ──────────────────────────────────────
     if (!userId) {
-      // Fetch all users' CRM data and find who has this customer phone
-      const { data: allRows } = await supabase
-        .from('user_crm_data')
-        .select('user_id, data');
-
+      const { data: allRows } = await supabase.from('user_crm_data').select('user_id, data');
       if (allRows) {
         for (const row of allRows) {
           const customers: Array<{ phone?: string }> = row.data?.customers ?? [];
-          const match = customers.find(c => c.phone && normalizePhone(c.phone) === normalizePhone(from));
-          if (match) {
+          if (customers.find(c => c.phone && normalizePhone(c.phone) === normalizePhone(from))) {
             userId = row.user_id;
             break;
           }
@@ -63,70 +54,99 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── 2. Route by twilio_numbers table (per-user number model) ───────────
+    // ── 2. Route by twilio_numbers table ─────────────────────────────────────
     if (!userId && (msgSvcSid || to)) {
       const col = msgSvcSid ? 'messaging_service_sid' : 'phone_number';
-      const val = msgSvcSid ?? to;
       const { data } = await supabase
-        .from('twilio_numbers')
-        .select('user_id')
-        .eq(col, val)
-        .maybeSingle();
+        .from('twilio_numbers').select('user_id').eq(col, msgSvcSid ?? to).maybeSingle();
       userId = data?.user_id ?? null;
     }
 
-    // ── 3. Default catch-all (single-tenant / demo mode) ───────────────────
-    if (!userId) {
-      userId = process.env.DEFAULT_SMS_USER_ID ?? null;
-    }
+    // ── 3. Catch-all ──────────────────────────────────────────────────────────
+    if (!userId) userId = process.env.DEFAULT_SMS_USER_ID ?? null;
 
     if (!userId) {
-      console.warn(`[SMS] No user found for From=${from}. Set DEFAULT_SMS_USER_ID env var as catch-all.`);
+      console.warn(`[SMS] No user found for From=${from}. Set DEFAULT_SMS_USER_ID as catch-all.`);
       return TWIML_OK;
     }
 
-    console.log(`[SMS] Routed to user=${userId} | From=${from} | Body=${body.slice(0, 80)}`);
+    console.log(`[SMS] Routed → user=${userId} | From=${from} | "${body.slice(0, 80)}"`);
 
-    // ── AI extraction + CRM update ─────────────────────────────────────────
-    const extraction = await extractJobFromSMS(body, from, mediaUrls);
-
+    // ── Load CRM data ─────────────────────────────────────────────────────────
     const { data: userData } = await supabase
-      .from('user_crm_data')
-      .select('data')
-      .eq('user_id', userId)
-      .single();
+      .from('user_crm_data').select('data').eq('user_id', userId).single();
 
-    const crmData = userData?.data ?? {
-      jobs: [], customers: [], invoices: [], appointments: [], pricebook: [], reminders: [],
-    };
+    const crmData: {
+      jobs: Record<string, unknown>[];
+      customers: Record<string, unknown>[];
+      invoices: Record<string, unknown>[];
+      appointments: Record<string, unknown>[];
+      pricebook: Record<string, unknown>[];
+      reminders: Record<string, unknown>[];
+    } = userData?.data ?? { jobs: [], customers: [], invoices: [], appointments: [], pricebook: [], reminders: [] };
 
-    // Upsert customer
-    let customer = crmData.customers.find(
-      (c: { phone?: string }) => c.phone && normalizePhone(c.phone) === normalizePhone(from)
-    );
+    // ── Resolve existing customer for context ─────────────────────────────────
+    const existingCustomer = crmData.customers.find(
+      (c: Record<string, unknown>) =>
+        c.phone && normalizePhone(c.phone as string) === normalizePhone(from),
+    ) as Record<string, unknown> | undefined;
+
+    const existingCustomerCtx = existingCustomer
+      ? {
+          name: existingCustomer.name as string,
+          recentJobs: (crmData.jobs as Array<Record<string, unknown>>)
+            .filter(j => j.customer === existingCustomer.name)
+            .slice(0, 3)
+            .map(j => ({
+              title: j.title as string,
+              status: j.status as string,
+              date: j.date as string,
+            })),
+        }
+      : undefined;
+
+    // ── Run AI agent ──────────────────────────────────────────────────────────
+    const extraction = await processIncomingSMS({
+      from,
+      body,
+      mediaUrls,
+      businessName: 'JobStack',
+      existingCustomer: existingCustomerCtx,
+    });
+
+    console.log(`[SMS] Intent=${extraction.intent} createJob=${extraction.createJob} urgency=${extraction.urgency}`);
+
+    // ── Upsert customer ───────────────────────────────────────────────────────
+    let customer = existingCustomer;
     if (!customer) {
-      customer = createCustomerFromExtraction(extraction);
+      customer = createCustomerFromExtraction(extraction) as Record<string, unknown>;
       crmData.customers.push(customer);
+    } else if (
+      // Update name if it was "Unknown Customer" and we now have a real name
+      (customer.name as string).startsWith('Unknown Customer') &&
+      !extraction.customerName.startsWith('Customer ')
+    ) {
+      (customer as Record<string, unknown>).name = extraction.customerName;
     }
 
-    // Create job
-    const newJob = createJobFromExtraction(extraction, userId);
-    newJob.customer = customer.name;
-    crmData.jobs.push(newJob);
+    // ── Create job if appropriate ─────────────────────────────────────────────
+    if (extraction.createJob) {
+      const newJob = createJobFromExtraction(extraction) as Record<string, unknown>;
+      newJob.customer = customer.name;
+      crmData.jobs.push(newJob);
+    }
 
+    // ── Persist ───────────────────────────────────────────────────────────────
     const { error: saveErr } = await supabase
-      .from('user_crm_data')
-      .update({ data: crmData })
-      .eq('user_id', userId);
-    if (saveErr) console.error('[SMS] Failed to save CRM data:', saveErr.message);
+      .from('user_crm_data').update({ data: crmData }).eq('user_id', userId);
+    if (saveErr) console.error('[SMS] Save failed:', saveErr.message);
 
-    // ── Confirmation SMS ───────────────────────────────────────────────────
-    const confirmMsg = generateConfirmationSMS(extraction);
+    // ── Send reply ────────────────────────────────────────────────────────────
     fetch(new URL('/api/sms/send', request.nextUrl.origin).toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: from, message: confirmMsg }),
-    }).catch(err => console.warn('[SMS] Confirmation failed:', err));
+      body: JSON.stringify({ to: from, message: extraction.replyMessage }),
+    }).catch(err => console.warn('[SMS] Reply send failed:', err));
 
     return TWIML_OK;
   } catch (err) {

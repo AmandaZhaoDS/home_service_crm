@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Terms of Service – JobPilot',
+  title: 'Terms of Service – JobStack',
 };
 
 export default function TermsPage() {
@@ -25,7 +25,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">1. Acceptance of Terms</h2>
             <p>
-              By accessing or using the JobPilot platform ("Service"), you agree to be bound by these
+              By accessing or using the JobStack platform ("Service"), you agree to be bound by these
               Terms of Service ("Terms"). If you do not agree to these Terms, do not use the Service.
               These Terms apply to all users, including home service business operators ("Operators") and
               their end customers who receive SMS communications.
@@ -35,7 +35,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">2. Description of Service</h2>
             <p>
-              JobPilot is an AI-powered field service management platform that helps home service
+              JobStack is an AI-powered field service management platform that helps home service
               businesses manage jobs, customers, invoices, schedules, and communicate with customers via
               SMS text messaging.
             </p>
@@ -44,7 +44,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">3. SMS Messaging Terms</h2>
             <p>
-              JobPilot enables Operators to send and receive SMS/text messages with their customers for
+              JobStack enables Operators to send and receive SMS/text messages with their customers for
               business purposes, including appointment confirmations, job estimates, service updates, and
               follow-up communications.
             </p>
@@ -75,13 +75,13 @@ export default function TermsPage() {
             <h3 className="text-base font-semibold text-gray-800 mt-4 mb-2">3.4 Help</h3>
             <p>
               For assistance, customers may reply <strong>HELP</strong> to any message or contact
-              JobPilot at privacy@jobpilot.app.
+              JobStack at privacy@jobpilot.app.
             </p>
 
             <h3 className="text-base font-semibold text-gray-800 mt-4 mb-2">3.5 Message Frequency and Rates</h3>
             <p>
               Message frequency varies based on business activity. Standard message and data rates may
-              apply. JobPilot is not responsible for any charges incurred by recipients from their
+              apply. JobStack is not responsible for any charges incurred by recipients from their
               mobile carrier.
             </p>
 
@@ -128,8 +128,8 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">7. Intellectual Property</h2>
             <p>
-              The JobPilot platform, including its code, design, and AI models, is proprietary to
-              JobPilot. You retain ownership of the business data you input. You grant JobPilot a
+              The JobStack platform, including its code, design, and AI models, is proprietary to
+              JobStack. You retain ownership of the business data you input. You grant JobStack a
               limited license to process your data solely to provide the Service.
             </p>
           </section>
@@ -138,7 +138,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-2">8. Disclaimer of Warranties</h2>
             <p>
               The Service is provided "as is" without warranties of any kind, express or implied.
-              JobPilot does not warrant that the Service will be uninterrupted, error-free, or free from
+              JobStack does not warrant that the Service will be uninterrupted, error-free, or free from
               security vulnerabilities.
             </p>
           </section>
@@ -146,7 +146,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">9. Limitation of Liability</h2>
             <p>
-              To the fullest extent permitted by law, JobPilot shall not be liable for any indirect,
+              To the fullest extent permitted by law, JobStack shall not be liable for any indirect,
               incidental, special, or consequential damages arising from your use of the Service, including
               any SMS delivery failures or carrier-related issues.
             </p>
@@ -184,7 +184,7 @@ export default function TermsPage() {
               Questions about these Terms? Contact us at:
             </p>
             <p className="mt-2 font-medium text-gray-900">
-              JobPilot<br />
+              JobStack<br />
               Email: privacy@jobpilot.app
             </p>
           </section>

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Privacy Policy – JobPilot',
+  title: 'Privacy Policy – JobStack',
 };
 
 export default function PrivacyPage() {
@@ -25,7 +25,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">1. Overview</h2>
             <p>
-              JobPilot ("we," "us," or "our") provides an AI-powered home service field management platform
+              JobStack ("we," "us," or "our") provides an AI-powered home service field management platform
               ("Service"). This Privacy Policy describes how we collect, use, and protect information about
               you and your customers when you use our Service, including any SMS/text message communications
               sent through the platform.
@@ -46,7 +46,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">3. SMS / Text Messaging</h2>
             <p>
-              JobPilot uses SMS messaging to allow you to communicate with your customers, including sending
+              JobStack uses SMS messaging to allow you to communicate with your customers, including sending
               appointment confirmations, job estimates, follow-up messages, and service reminders.
             </p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
@@ -151,7 +151,7 @@ export default function PrivacyPage() {
               us at:
             </p>
             <p className="mt-2 font-medium text-gray-900">
-              JobPilot<br />
+              JobStack<br />
               Email: privacy@jobpilot.app
             </p>
           </section>

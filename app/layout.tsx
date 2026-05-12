@@ -5,7 +5,7 @@ import AuthBoundary from '../components/AuthBoundary';
 import { LanguageProvider } from '../lib/i18n';
 
 export const metadata: Metadata = {
-  title: 'JobPilot - Home Service CRM',
+  title: 'JobStack - Home Service CRM',
   description: 'AI-powered home service management platform',
 };
 

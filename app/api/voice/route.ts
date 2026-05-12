@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 interface CustomerCtx { id: string; name: string; email: string; phone: string; }
 interface JobCtx { id: string; title: string; customer: string; status: string; date: string; amount: number; notes: string; }
 
-const SYSTEM = `You are an AI assistant for a home service CRM app called JobPilot.
+const SYSTEM = `You are an AI assistant for a home service CRM app called JobStack.
 The user speaks a voice command in any language.
 
 RESPOND ONLY with valid JSON, no markdown, no explanation.

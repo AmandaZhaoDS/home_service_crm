@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     const event = await calendar.events.insert({
       calendarId: 'primary',
       requestBody: {
-        summary: `[FieldPro] ${job.title} - ${job.customer}`,
+        summary: `[JobStack] ${job.title} - ${job.customer}`,
         description: job.notes || `Service appointment for ${job.customer}`,
         location: job.address,
         start: {

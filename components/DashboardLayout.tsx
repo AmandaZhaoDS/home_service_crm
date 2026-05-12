@@ -186,7 +186,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <BriefcaseIcon />
                 </div>
                 <span className="text-base font-semibold tracking-tight">
-                  <span className="text-gray-800">Job</span><span className="text-blue-600 font-bold">Pilot</span>
+                  <span className="text-gray-800">Job</span><span className="text-blue-600 font-bold">Stack</span>
                 </span>
               </div>
             </div>
@@ -347,7 +347,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <BriefcaseIcon />
                 </div>
                 <span className="text-sm font-semibold">
-                  <span className="text-gray-800">Job</span><span className="text-blue-600 font-bold">Pilot</span>
+                  <span className="text-gray-800">Job</span><span className="text-blue-600 font-bold">Stack</span>
                 </span>
               </div>
               <button

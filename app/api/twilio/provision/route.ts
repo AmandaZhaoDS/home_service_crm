@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-    const friendlyName = `JobPilot-${userId.slice(0, 8)}`;
+    const friendlyName = `JobStack-${userId.slice(0, 8)}`;
     const webhookUrl = `${request.nextUrl.origin}/api/sms/incoming`;
 
     // ── Layer 1: DB idempotency check ──────────────────────────────────────

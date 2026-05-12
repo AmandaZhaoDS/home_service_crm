@@ -20,7 +20,7 @@ export function subtotal(items: EstimateLineItem[]): number {
  * Format an estimate as a concise SMS message (≤160 chars per segment)
  */
 export function formatEstimateAsSMS(data: EstimateData): string {
-  const biz = data.businessName ?? 'FieldPal';
+  const biz = data.businessName ?? 'JobStack';
   const total = subtotal(data.items);
   const firstName = data.customerName.split(' ')[0];
 
@@ -41,7 +41,7 @@ export function formatEstimateAsSMS(data: EstimateData): string {
  * Format an estimate as plain text for display or email
  */
 export function formatEstimateAsText(data: EstimateData): string {
-  const biz = data.businessName ?? 'FieldPal';
+  const biz = data.businessName ?? 'JobStack';
   const total = subtotal(data.items);
 
   const header = `ESTIMATE — ${data.jobTitle}\nPrepared for: ${data.customerName}\n${'─'.repeat(40)}`;
