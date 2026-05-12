@@ -33,37 +33,54 @@ NEW CUSTOMER MESSAGE: "{NEW_MESSAGE}"
 
 STATE MACHINE RULES:
 
+CRITICAL RULE: You MUST advance exactly ONE state per message. Never jump multiple steps.
+  gathering → pending_review → (technician sends estimate) → sent_estimate → scheduling → confirmed → closed
+  The only allowed transitions per message:
+    gathering     → gathering (need more info) or pending_review (have enough)
+    pending_review → pending_review (reassure customer, wait for technician)
+    sent_estimate → sent_estimate (questions) or scheduling (customer accepts) or gathering (declines)
+    scheduling    → scheduling (need date/time) or confirmed (have date/time)
+    confirmed     → closed
+
+CRITICAL RULE: shouldCreateJob MUST be false unless nextState is EXACTLY "confirmed".
+  Never set shouldCreateJob = true for gathering, pending_review, sent_estimate, or scheduling.
+
 1. STATE = "gathering"
-   - Your job: greet the customer warmly, understand their problem, ask for missing details (address, problem specifics, photos if relevant)
-   - If you have enough info (problem + address, or customer is a known repeat customer): set nextState = "pending_review" and build a draft estimate
-   - Otherwise: set nextState = "gathering", ask clarifying questions (ONE question at a time, max)
-   - replyToCustomer: warm, friendly, professional. 2-3 sentences.
+   - FIRST MESSAGE: always greet warmly and ask for the key missing detail (address if not given, or more problem details)
+   - Subsequent messages: acknowledge info, ask for the ONE most important missing piece
+   - Only advance to pending_review when you have BOTH: (a) clear problem description AND (b) customer address
+   - If missing address: ask "Could you share your address so we can schedule a visit?"
+   - If missing problem details: ask a specific question about the issue
+   - nextState = "gathering" until you have both problem + address
+   - shouldCreateJob = false (ALWAYS for this state)
 
 2. STATE = "pending_review"
-   - A technician needs to review the estimate before it's sent to the customer
-   - If the customer messages while in this state: reassure them "We're reviewing your request and will send a detailed quote shortly"
-   - Do NOT send any pricing to the customer in this state
-   - nextState stays "pending_review"
+   - A technician is reviewing the estimate — do NOT send pricing to customer
+   - Reply: "Thanks for your patience! We're reviewing your request and will send a detailed quote shortly. – {BIZ}"
+   - nextState = "pending_review" (always — technician controls the transition)
+   - shouldCreateJob = false (ALWAYS for this state)
 
 3. STATE = "sent_estimate"
-   - The estimate has already been sent to the customer
+   - The estimate has already been sent to the customer by the technician
    - If customer says yes/ok/sounds good/accepts → nextState = "scheduling", ask what day/time works
    - If customer asks questions → answer based on pricebook, stay in "sent_estimate"
-   - If customer declines or wants changes → nextState = "gathering", ask what they'd like adjusted
+   - If customer declines or wants changes → nextState = "gathering"
+   - shouldCreateJob = false (ALWAYS for this state)
 
 4. STATE = "scheduling"
    - Working out appointment time
-   - If customer provides a date/time → nextState = "confirmed", confirm the appointment
-   - If no time yet → ask "What day and time works best for you?"
+   - If customer provides BOTH a date AND a time → nextState = "confirmed", confirm the booking
+   - If date or time is missing → ask for it, stay in "scheduling"
+   - shouldCreateJob = false (ALWAYS for this state)
 
 5. STATE = "confirmed"
-   - Appointment is confirmed
-   - Send a confirmation message with date/time, address, and what to expect
+   - Appointment is confirmed — send a warm confirmation with date, time, address, and what to expect
    - nextState = "closed"
-   - shouldCreateJob = true
+   - shouldCreateJob = true (ONLY allowed here)
 
 6. STATE = "closed"
-   - Conversation is done. If customer messages again, start a new gathering flow.
+   - Conversation is done. If customer messages again: treat as new gathering flow (nextState = "gathering")
+   - shouldCreateJob = false
 
 ---
 
@@ -167,19 +184,34 @@ export async function runSMSAgent(
 
 function buildResult(ex: Record<string, unknown>, currentState: SmsConversationState): AgentResult {
   const nextState = (ex.nextState as SmsConversationState) || currentState;
+
+  // Hard guard: AI cannot create a job unless it reaches 'confirmed' state.
+  // Also prevent illegal state jumps — only allow 1-step transitions.
+  const ALLOWED: Record<SmsConversationState, SmsConversationState[]> = {
+    gathering:      ['gathering', 'pending_review'],
+    pending_review: ['pending_review'],
+    sent_estimate:  ['sent_estimate', 'scheduling', 'gathering'],
+    scheduling:     ['scheduling', 'confirmed'],
+    confirmed:      ['closed'],
+    closed:         ['gathering'],
+  };
+  const safeNext = (ALLOWED[currentState] ?? [currentState]).includes(nextState)
+    ? nextState
+    : currentState;
+
   return {
     replyToCustomer: (ex.replyToCustomer as string) || null,
-    nextState,
+    nextState: safeNext,
     updatedConversation: {
-      state: nextState,
+      state: safeNext,
       customerName: (ex.customerName as string) || undefined,
       problemDescription: (ex.problemDescription as string) || undefined,
       address: (ex.address as string) || undefined,
       urgency: (ex.urgency as string) || undefined,
       preferredDate: (ex.preferredDate as string) || undefined,
     },
-    draftEstimate: ex.draftEstimate as SmsDraftEstimate | undefined,
-    shouldCreateJob: Boolean(ex.shouldCreateJob),
+    draftEstimate: safeNext === 'pending_review' ? (ex.draftEstimate as SmsDraftEstimate | undefined) : undefined,
+    shouldCreateJob: safeNext === 'confirmed',  // enforced — ignores AI's value
     jobTitle: (ex.problemDescription as string) || undefined,
     customerName: (ex.customerName as string) || undefined,
     address: (ex.address as string) || undefined,

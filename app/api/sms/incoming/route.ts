@@ -158,7 +158,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Create job when confirmed ─────────────────────────────────────────────
-    if (result.shouldCreateJob) {
+    // Hard guard: job creation only allowed when agent explicitly reaches 'confirmed'.
+    // Prevents AI from jumping gathering→confirmed in one message and fragmenting records.
+    if (result.shouldCreateJob && result.nextState === 'confirmed') {
       const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const newJob = {
         id: jobId,
@@ -194,18 +196,30 @@ export async function POST(request: NextRequest) {
       conversation.messages.push({ role: 'agent', content: result.replyToCustomer, ts: new Date().toISOString() });
     }
 
-    // ── Persist ───────────────────────────────────────────────────────────────
+    // ── Persist (upsert so a missing row doesn't silently drop data) ──────────
     const { error: saveErr } = await supabase
-      .from('user_crm_data').update({ data: crmData }).eq('user_id', userId);
+      .from('user_crm_data')
+      .upsert({ user_id: userId, data: crmData }, { onConflict: 'user_id' });
     if (saveErr) console.error('[SMS] Save failed:', saveErr.message);
+    else console.log(`[SMS] Saved: conversations=${crmData.smsConversations?.length} customers=${crmData.customers.length}`);
 
-    // ── Send reply ────────────────────────────────────────────────────────────
+    // ── Send reply (awaited — fire-and-forget dies in Vercel serverless) ──────
     if (result.replyToCustomer) {
-      fetch(new URL('/api/sms/send', request.nextUrl.origin).toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: from, message: result.replyToCustomer }),
-      }).catch(err => console.warn('[SMS] Reply send failed:', err));
+      try {
+        const sendRes = await fetch(new URL('/api/sms/send', request.nextUrl.origin).toString(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: from, message: result.replyToCustomer }),
+        });
+        const sendJson = await sendRes.json().catch(() => ({}));
+        if (!sendRes.ok) {
+          console.error('[SMS] Send failed:', sendJson);
+        } else {
+          console.log(`[SMS] Reply sent → ${from} | SID=${sendJson.messageSid}`);
+        }
+      } catch (err) {
+        console.error('[SMS] Send error:', err);
+      }
     }
 
     return TWIML_OK;
