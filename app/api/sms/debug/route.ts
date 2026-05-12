@@ -3,13 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/sms/debug
- * Returns Twilio config check + all purchased numbers with their webhook URLs.
- * Use this to verify setup without sending anything.
- *
- * POST /api/sms/debug
- * Body: { to: "+1XXXXXXXXXX", message?: "..." }
- * Sends a real test SMS and returns the full Twilio response.
+ * GET /api/sms/debug        — config check, webhook URLs, diagnosis
+ * POST /api/sms/debug       — { to: "+1XXX", message?: "..." } → real test SMS
+ * PUT /api/sms/debug        — auto-fix: sets Messaging Service inbound URL + phone number webhooks
  */
 export async function GET() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -154,6 +150,70 @@ export async function POST(request: NextRequest) {
     from:           result.from,
     fullResponse:   result,
   });
+}
+
+/**
+ * PUT /api/sms/debug
+ * Auto-fix: sets the Messaging Service inbound request URL and updates all
+ * purchased phone number SMS webhooks to point to this deployment's
+ * /api/sms/incoming endpoint.
+ */
+export async function PUT(request: NextRequest) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken  = process.env.TWILIO_AUTH_TOKEN;
+  const msgSvcSid  = process.env.TWILIO_MESSAGING_SERVICE_SID;
+
+  if (!accountSid || !authToken) {
+    return NextResponse.json({ error: 'Missing credentials' }, { status: 500 });
+  }
+
+  const webhookUrl = `${request.nextUrl.origin}/api/sms/incoming`;
+  const auth       = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+  const results: Record<string, unknown> = { webhookUrl };
+
+  // ── Fix Messaging Service inbound URL ─────────────────────────────────────
+  if (msgSvcSid) {
+    const body = new URLSearchParams({ InboundRequestUrl: webhookUrl, InboundMethod: 'POST' });
+    const res  = await fetch(
+      `https://messaging.twilio.com/v1/Services/${msgSvcSid}`,
+      { method: 'POST', headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() },
+    );
+    const d = await res.json();
+    results.messagingService = {
+      ok: res.ok,
+      sid: d.sid,
+      inboundRequestUrl: d.inbound_request_url,
+      error: res.ok ? null : d.message,
+    };
+  }
+
+  // ── Fix phone number webhook URLs ─────────────────────────────────────────
+  const numsRes  = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json?PageSize=20`,
+    { headers: { Authorization: `Basic ${auth}` } },
+  );
+  const numsData = await numsRes.json();
+  const numbers  = numsData.incoming_phone_numbers ?? [];
+  const numResults = [];
+
+  for (const n of numbers) {
+    if (n.sms_url === webhookUrl) {
+      numResults.push({ number: n.phone_number, status: 'already correct' });
+      continue;
+    }
+    const body = new URLSearchParams({ SmsUrl: webhookUrl, SmsMethod: 'POST' });
+    const res  = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers/${n.sid}.json`,
+      { method: 'POST', headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() },
+    );
+    const d = await res.json();
+    numResults.push({ number: n.phone_number, ok: res.ok, newUrl: d.sms_url, error: res.ok ? null : d.message });
+  }
+
+  results.phoneNumbers = numResults;
+  results.ok = true;
+
+  return NextResponse.json(results);
 }
 
 function buildDiagnosis(

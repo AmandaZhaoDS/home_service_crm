@@ -187,7 +187,7 @@ export default function FeedbackWidget() {
       {/* Floating bug button */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-24 right-5 z-40 w-11 h-11 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white rounded-full shadow-lg flex items-center justify-center transition-all text-lg"
+        className="fixed bottom-24 right-5 z-40 w-11 h-11 bg-slate-600 hover:bg-slate-700 active:scale-95 text-white rounded-full shadow-lg flex items-center justify-center transition-all text-lg"
         title="Report a bug or request a change"
         aria-label="Report feedback"
       >
@@ -314,7 +314,7 @@ export default function FeedbackWidget() {
                 className={`w-full py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 ${
                   submitStatus === 'done'  ? 'bg-green-500 text-white' :
                   submitStatus === 'error' ? 'bg-red-100 text-red-600' :
-                  'bg-orange-500 text-white hover:bg-orange-600'
+                  'bg-slate-600 text-white hover:bg-slate-700'
                 }`}
               >
                 {submitStatus === 'saving' ? '⏳ Submitting…' :
