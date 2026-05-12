@@ -7,9 +7,26 @@ export const dynamic = 'force-dynamic';
  * POST /api/sms/debug       — { to: "+1XXX", message?: "..." } → real test SMS
  * PUT /api/sms/debug        — auto-fix: sets Messaging Service inbound URL + phone number webhooks
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken  = process.env.TWILIO_AUTH_TOKEN;
+
+  // ?msgSid=SMxxx — check a specific message's delivery status
+  const msgSid = request.nextUrl.searchParams.get('msgSid');
+  if (msgSid) {
+    if (!accountSid || !authToken) return NextResponse.json({ error: 'Missing credentials' }, { status: 500 });
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${msgSid}.json`, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
+    const d = await r.json();
+    return NextResponse.json({
+      sid: d.sid, status: d.status, to: d.to, from: d.from,
+      errorCode: d.error_code, errorMessage: d.error_message,
+      dateSent: d.date_sent, dateUpdated: d.date_updated,
+      direction: d.direction, numSegments: d.num_segments,
+    });
+  }
   const msgSvcSid  = process.env.TWILIO_MESSAGING_SERVICE_SID;
   const phoneNum   = process.env.TWILIO_PHONE_NUMBER;
   const defaultUid = process.env.DEFAULT_SMS_USER_ID;
