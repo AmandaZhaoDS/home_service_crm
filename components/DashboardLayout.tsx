@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthProvider';
 import { useLanguage, LANGUAGES } from '../lib/i18n';
 import VoiceAssistant from './VoiceAssistant';
+import FeedbackWidget from './FeedbackWidget';
 
 function BriefcaseIcon() {
   return (
@@ -381,6 +382,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               })}
             </nav>
 
+            {/* Dev tools */}
+            <div className="px-3 pb-2">
+              <Link href="/changerequested"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+                🐛 Change Requests
+              </Link>
+            </div>
+
             {/* Language picker in drawer */}
             <div className="px-4 py-3 border-t border-gray-100">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">{t('nav.language')}</p>
@@ -443,6 +452,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Floating Voice Assistant */}
       <VoiceAssistant />
+      {/* Floating Feedback Widget */}
+      <FeedbackWidget />
     </div>
   );
 }
