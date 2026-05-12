@@ -1,14 +1,13 @@
 import { NextRequest } from 'next/server';
-import {
-  processIncomingSMS,
-  createJobFromExtraction,
-  createCustomerFromExtraction,
-} from '@/lib/smsProcessing';
+import { runSMSAgent } from '@/lib/smsAgent';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import type { SmsConversation, FieldProData, PricebookItem } from '@/lib/fieldproStorage';
 
 const TWIML_OK = new Response('<?xml version="1.0"?><Response></Response>', {
   headers: { 'Content-Type': 'text/xml' },
 });
+
+const BIZ_NAME = 'JobStack';
 
 /**
  * POST /api/sms/incoming
@@ -22,11 +21,11 @@ const TWIML_OK = new Response('<?xml version="1.0"?><Response></Response>', {
  */
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const from      = formData.get('From')                as string;
-    const body      = formData.get('Body')                as string;
-    const to        = formData.get('To')                  as string;
-    const msgSvcSid = formData.get('MessagingServiceSid') as string;
+    const formData   = await request.formData();
+    const from       = formData.get('From')                as string;
+    const body       = formData.get('Body')                as string;
+    const to         = formData.get('To')                  as string;
+    const msgSvcSid  = formData.get('MessagingServiceSid') as string;
     const mediaCount = parseInt(formData.get('NumMedia') as string) || 0;
 
     const mediaUrls: string[] = [];
@@ -46,7 +45,13 @@ export async function POST(request: NextRequest) {
       if (allRows) {
         for (const row of allRows) {
           const customers: Array<{ phone?: string }> = row.data?.customers ?? [];
-          if (customers.find(c => c.phone && normalizePhone(c.phone) === normalizePhone(from))) {
+          if (customers.find(c => c.phone && norm(c.phone) === norm(from))) {
+            userId = row.user_id;
+            break;
+          }
+          // Also check open conversations
+          const convos: Array<{ customerPhone?: string }> = row.data?.smsConversations ?? [];
+          if (convos.find(cv => cv.customerPhone && norm(cv.customerPhone) === norm(from))) {
             userId = row.user_id;
             break;
           }
@@ -76,64 +81,117 @@ export async function POST(request: NextRequest) {
     const { data: userData } = await supabase
       .from('user_crm_data').select('data').eq('user_id', userId).single();
 
-    const crmData: {
-      jobs: Record<string, unknown>[];
-      customers: Record<string, unknown>[];
-      invoices: Record<string, unknown>[];
-      appointments: Record<string, unknown>[];
-      pricebook: Record<string, unknown>[];
-      reminders: Record<string, unknown>[];
-    } = userData?.data ?? { jobs: [], customers: [], invoices: [], appointments: [], pricebook: [], reminders: [] };
+    const crmData: FieldProData = userData?.data ?? {
+      jobs: [], customers: [], invoices: [], appointments: [], pricebook: [], reminders: [], smsConversations: [],
+    };
+    if (!crmData.smsConversations) crmData.smsConversations = [];
 
-    // ── Resolve existing customer for context ─────────────────────────────────
-    const existingCustomer = crmData.customers.find(
-      (c: Record<string, unknown>) =>
-        c.phone && normalizePhone(c.phone as string) === normalizePhone(from),
-    ) as Record<string, unknown> | undefined;
+    // ── Find or create conversation ───────────────────────────────────────────
+    const normFrom = norm(from);
+    let conversation = crmData.smsConversations.find(
+      cv => norm(cv.customerPhone) === normFrom && cv.state !== 'closed',
+    );
 
-    const existingCustomerCtx = existingCustomer
-      ? {
-          name: existingCustomer.name as string,
-          recentJobs: (crmData.jobs as Array<Record<string, unknown>>)
-            .filter(j => j.customer === existingCustomer.name)
-            .slice(0, 3)
-            .map(j => ({
-              title: j.title as string,
-              status: j.status as string,
-              date: j.date as string,
-            })),
-        }
-      : undefined;
-
-    // ── Run AI agent ──────────────────────────────────────────────────────────
-    const extraction = await processIncomingSMS({
-      from,
-      body,
-      mediaUrls,
-      businessName: 'JobStack',
-      existingCustomer: existingCustomerCtx,
-    });
-
-    console.log(`[SMS] Intent=${extraction.intent} createJob=${extraction.createJob} urgency=${extraction.urgency}`);
-
-    // ── Upsert customer ───────────────────────────────────────────────────────
-    let customer = existingCustomer;
-    if (!customer) {
-      customer = createCustomerFromExtraction(extraction) as Record<string, unknown>;
-      crmData.customers.push(customer);
-    } else if (
-      // Update name if it was "Unknown Customer" and we now have a real name
-      (customer.name as string).startsWith('Unknown Customer') &&
-      !extraction.customerName.startsWith('Customer ')
-    ) {
-      (customer as Record<string, unknown>).name = extraction.customerName;
+    if (!conversation) {
+      // Look up existing customer for pre-filled name
+      const existingCustomer = crmData.customers.find(
+        c => c.phone && norm(c.phone) === normFrom,
+      );
+      conversation = {
+        id: `sms-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        customerPhone: from,
+        customerName: existingCustomer?.name,
+        state: 'gathering',
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      crmData.smsConversations.push(conversation);
+      console.log(`[SMS] New conversation ${conversation.id} for ${from}`);
     }
 
-    // ── Create job if appropriate ─────────────────────────────────────────────
-    if (extraction.createJob) {
-      const newJob = createJobFromExtraction(extraction) as Record<string, unknown>;
-      newJob.customer = customer.name;
+    // Append customer message
+    conversation.messages.push({ role: 'customer', content: body, ts: new Date().toISOString() });
+    if (mediaUrls.length > 0) {
+      conversation.messages.push({
+        role: 'customer',
+        content: `[Sent ${mediaUrls.length} photo(s): ${mediaUrls.join(', ')}]`,
+        ts: new Date().toISOString(),
+      });
+    }
+
+    // ── Run stateful agent ────────────────────────────────────────────────────
+    const pricebook: PricebookItem[] = crmData.pricebook ?? [];
+    const result = await runSMSAgent(conversation, body, pricebook, BIZ_NAME);
+
+    console.log(`[SMS] Agent: ${conversation.state} → ${result.nextState} | reply=${!!result.replyToCustomer} | job=${result.shouldCreateJob}`);
+
+    // ── Merge agent updates back into conversation ────────────────────────────
+    conversation.state     = result.nextState;
+    conversation.updatedAt = new Date().toISOString();
+    if (result.updatedConversation.customerName) conversation.customerName = result.updatedConversation.customerName;
+    if (result.updatedConversation.problemDescription) conversation.problemDescription = result.updatedConversation.problemDescription;
+    if (result.updatedConversation.address) conversation.address = result.updatedConversation.address;
+    if (result.updatedConversation.urgency) conversation.urgency = result.updatedConversation.urgency;
+    if (result.updatedConversation.preferredDate) conversation.preferredDate = result.updatedConversation.preferredDate;
+    if (result.draftEstimate) conversation.draftEstimate = result.draftEstimate;
+
+    // ── Upsert / update customer record ──────────────────────────────────────
+    const customerName = conversation.customerName || `Customer ${from.slice(-4)}`;
+    let customer = crmData.customers.find(c => c.phone && norm(c.phone) === normFrom);
+    if (!customer) {
+      customer = {
+        id: `customer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: customerName,
+        email: '',
+        phone: from,
+        address: conversation.address || 'To be confirmed',
+        totalJobs: 0,
+        totalSpent: 0,
+        lastService: '',
+        customerPhoneVerified: true,
+        source: 'sms',
+      };
+      crmData.customers.push(customer);
+    } else if (customer.name.startsWith('Unknown Customer') || customer.name.startsWith('Customer ')) {
+      if (!customerName.startsWith('Customer ')) customer.name = customerName;
+    }
+
+    // ── Create job when confirmed ─────────────────────────────────────────────
+    if (result.shouldCreateJob) {
+      const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const newJob = {
+        id: jobId,
+        title: (conversation.problemDescription || body).substring(0, 60),
+        customer: customer.name,
+        address: conversation.address || 'To be confirmed',
+        date: conversation.preferredDate ?? new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        status: (conversation.preferredDate ? 'scheduled' : 'estimate') as 'scheduled' | 'estimate',
+        amount: conversation.draftEstimate?.total ?? 0,
+        estimate: conversation.draftEstimate?.total ?? 0,
+        technician: '',
+        items: (conversation.draftEstimate?.items ?? []).map((it, idx) => ({
+          id: `item-${idx}`,
+          label: it.label,
+          amount: it.amount,
+          quantity: it.quantity,
+        })),
+        notes: `[SMS] ${conversation.problemDescription || body}\nPhone: ${from}\nUrgency: ${conversation.urgency || 'medium'}`,
+        photos: mediaUrls,
+        smsSource: true,
+        incomingMessageText: conversation.problemDescription || body,
+        urgencyLevel: (conversation.urgency || 'medium') as 'low' | 'medium' | 'high' | 'emergency',
+      };
       crmData.jobs.push(newJob);
+      conversation.jobId  = jobId;
+      conversation.state  = 'closed';
+      console.log(`[SMS] Created job ${jobId} from conversation ${conversation.id}`);
+    }
+
+    // ── Append agent reply to history ─────────────────────────────────────────
+    if (result.replyToCustomer) {
+      conversation.messages.push({ role: 'agent', content: result.replyToCustomer, ts: new Date().toISOString() });
     }
 
     // ── Persist ───────────────────────────────────────────────────────────────
@@ -142,11 +200,13 @@ export async function POST(request: NextRequest) {
     if (saveErr) console.error('[SMS] Save failed:', saveErr.message);
 
     // ── Send reply ────────────────────────────────────────────────────────────
-    fetch(new URL('/api/sms/send', request.nextUrl.origin).toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: from, message: extraction.replyMessage }),
-    }).catch(err => console.warn('[SMS] Reply send failed:', err));
+    if (result.replyToCustomer) {
+      fetch(new URL('/api/sms/send', request.nextUrl.origin).toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: from, message: result.replyToCustomer }),
+      }).catch(err => console.warn('[SMS] Reply send failed:', err));
+    }
 
     return TWIML_OK;
   } catch (err) {
@@ -155,6 +215,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function normalizePhone(phone: string): string {
+function norm(phone: string): string {
   return phone.replace(/\D/g, '');
 }

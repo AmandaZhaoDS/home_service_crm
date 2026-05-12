@@ -94,6 +94,44 @@ export interface Reminder {
   createdAt: string;
 }
 
+export interface SmsMessage {
+  role: 'customer' | 'agent';
+  content: string;
+  ts: string;
+}
+
+export interface SmsDraftEstimate {
+  items: Array<{ label: string; amount: number; quantity: number }>;
+  total: number;
+  notes: string;
+  category: string;
+  urgency: string;
+}
+
+export type SmsConversationState =
+  | 'gathering'       // AI collecting details from customer
+  | 'pending_review'  // AI built estimate, waiting for technician approval
+  | 'sent_estimate'   // Estimate sent to customer, awaiting response
+  | 'scheduling'      // Customer accepted, working out appointment time
+  | 'confirmed'       // Appointment confirmed
+  | 'closed';         // Job created / conversation ended
+
+export interface SmsConversation {
+  id: string;
+  customerPhone: string;
+  customerName?: string;
+  jobId?: string;
+  state: SmsConversationState;
+  messages: SmsMessage[];
+  draftEstimate?: SmsDraftEstimate;
+  problemDescription?: string;
+  address?: string;
+  urgency?: string;
+  preferredDate?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FieldProData {
   jobs: Job[];
   customers: Customer[];
@@ -101,6 +139,7 @@ export interface FieldProData {
   appointments: Appointment[];
   pricebook: PricebookItem[];
   reminders: Reminder[];
+  smsConversations?: SmsConversation[];
 }
 
 export interface UserAccount {

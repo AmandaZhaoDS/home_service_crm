@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useT } from '../lib/i18n';
-import { Job, JobStatus, JobItem, PricebookItem, Customer, Invoice } from '../lib/fieldproStorage';
+import { Job, JobStatus, JobItem, PricebookItem, Customer, Invoice, SmsConversation } from '../lib/fieldproStorage';
 import Modal from '../components/Modal';
 import CustomerSearch from '../components/CustomerSearch';
 
@@ -695,6 +695,53 @@ export default function Home() {
     updateData({ ...data, jobs: data.jobs.map(j => j.id === job.id ? { ...j, status: nextStatus } : j) });
   }, [data, updateData]);
 
+  // SMS conversations pending technician review
+  const pendingConvos: SmsConversation[] = useMemo(
+    () => (data?.smsConversations ?? []).filter(c => c.state === 'pending_review'),
+    [data],
+  );
+  const [approveStates, setApproveStates] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
+
+  const approveEstimate = useCallback(async (conversationId: string) => {
+    if (!user) return;
+    setApproveStates(s => ({ ...s, [conversationId]: 'loading' }));
+    try {
+      const res = await fetch('/api/sms/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, conversationId }),
+      });
+      if (res.ok) {
+        setApproveStates(s => ({ ...s, [conversationId]: 'done' }));
+        setTimeout(() => refreshUser(), 1500);
+      } else {
+        setApproveStates(s => ({ ...s, [conversationId]: 'error' }));
+      }
+    } catch {
+      setApproveStates(s => ({ ...s, [conversationId]: 'error' }));
+    }
+  }, [user, refreshUser]);
+
+  const dismissEstimate = useCallback(async (conversationId: string) => {
+    if (!user) return;
+    setApproveStates(s => ({ ...s, [conversationId]: 'loading' }));
+    try {
+      const res = await fetch('/api/sms/approve', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, conversationId }),
+      });
+      if (res.ok) {
+        setApproveStates(s => ({ ...s, [conversationId]: 'idle' }));
+        setTimeout(() => refreshUser(), 800);
+      } else {
+        setApproveStates(s => ({ ...s, [conversationId]: 'error' }));
+      }
+    } catch {
+      setApproveStates(s => ({ ...s, [conversationId]: 'error' }));
+    }
+  }, [user, refreshUser]);
+
   const runFollowUps = useCallback(async () => {
     if (!user) return;
     setFollowUpStatus('running');
@@ -823,6 +870,82 @@ export default function Home() {
           </div>
         );
       })()}
+
+      {/* Pending SMS Estimate Reviews */}
+      {pendingConvos.length > 0 && (
+        <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🤖</span>
+            <h3 className="font-bold text-violet-800">AI Estimates Awaiting Your Approval ({pendingConvos.length})</h3>
+            <span className="text-xs text-violet-600 ml-auto">Review before sending</span>
+          </div>
+          <div className="space-y-3">
+            {pendingConvos.map(conv => {
+              const st = approveStates[conv.id] ?? 'idle';
+              const est = conv.draftEstimate;
+              return (
+                <div key={conv.id} className="bg-white rounded-xl border border-violet-100 p-4">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-9 h-9 rounded-full ${avatarColor(conv.customerName || conv.customerPhone)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                        {initials(conv.customerName || conv.customerPhone.slice(-4))}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">{conv.customerName || conv.customerPhone}</p>
+                        <p className="text-xs text-gray-500">{conv.customerPhone}</p>
+                      </div>
+                    </div>
+                    {conv.urgency && conv.urgency !== 'medium' && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${conv.urgency === 'emergency' || conv.urgency === 'high' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {conv.urgency}
+                      </span>
+                    )}
+                  </div>
+
+                  {conv.problemDescription && (
+                    <p className="text-xs text-gray-600 italic mb-3 bg-gray-50 rounded-lg px-3 py-2">"{conv.problemDescription}"</p>
+                  )}
+
+                  {est && (
+                    <div className="mb-3">
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">AI-Generated Estimate</p>
+                      <div className="space-y-1">
+                        {est.items.map((item, i) => (
+                          <div key={i} className="flex justify-between text-sm">
+                            <span className="text-gray-700">{item.label}{item.quantity > 1 ? ` × ${item.quantity}` : ''}</span>
+                            <span className="font-semibold text-gray-900">${(item.amount * item.quantity).toFixed(0)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-bold border-t border-gray-100 pt-1.5 mt-1">
+                          <span>Total</span>
+                          <span className="text-violet-700">${est.total.toFixed(0)}</span>
+                        </div>
+                      </div>
+                      {est.notes && <p className="text-xs text-gray-500 mt-1.5 italic">{est.notes}</p>}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => approveEstimate(conv.id)}
+                      disabled={st === 'loading' || st === 'done'}
+                      className={`flex-1 text-sm font-semibold py-2 rounded-lg transition-colors disabled:opacity-50 ${st === 'done' ? 'bg-green-100 text-green-700' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
+                      {st === 'loading' ? '⏳ Sending…' : st === 'done' ? '✓ Sent to Customer' : 'Send Estimate to Customer'}
+                    </button>
+                    <button
+                      onClick={() => dismissEstimate(conv.id)}
+                      disabled={st === 'loading'}
+                      className="px-3 py-2 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                      Revise
+                    </button>
+                  </div>
+                  {st === 'error' && <p className="text-xs text-red-500 mt-1.5">Failed — check Twilio config</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-5 items-start">
         {/* Left: Today's Jobs */}
