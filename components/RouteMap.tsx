@@ -37,7 +37,7 @@ async function geocode(address: string): Promise<GeoPoint | null> {
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
-      { headers: { 'Accept-Language': 'en', 'User-Agent': 'FieldProJobs/1.0' } }
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'JobStack/1.0' } }
     );
     const data = await res.json();
     if (!data.length) return null;

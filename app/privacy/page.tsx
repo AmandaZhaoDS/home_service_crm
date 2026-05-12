@@ -152,7 +152,7 @@ export default function PrivacyPage() {
             </p>
             <p className="mt-2 font-medium text-gray-900">
               JobStack<br />
-              Email: privacy@jobpilot.app
+              Email: privacy@jobstack.app
             </p>
           </section>
         </div>

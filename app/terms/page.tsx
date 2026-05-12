@@ -75,7 +75,7 @@ export default function TermsPage() {
             <h3 className="text-base font-semibold text-gray-800 mt-4 mb-2">3.4 Help</h3>
             <p>
               For assistance, customers may reply <strong>HELP</strong> to any message or contact
-              JobStack at privacy@jobpilot.app.
+              JobStack at privacy@jobstack.app.
             </p>
 
             <h3 className="text-base font-semibold text-gray-800 mt-4 mb-2">3.5 Message Frequency and Rates</h3>
@@ -185,7 +185,7 @@ export default function TermsPage() {
             </p>
             <p className="mt-2 font-medium text-gray-900">
               JobStack<br />
-              Email: privacy@jobpilot.app
+              Email: privacy@jobstack.app
             </p>
           </section>
         </div>

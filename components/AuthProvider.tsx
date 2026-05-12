@@ -241,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .update({ data: nextData })
         .eq('user_id', user.id)
         .then(({ error }) => {
-          if (error) console.error('[FieldPro] save failed:', error.message);
+          if (error) console.error('[JobStack] save failed:', error.message);
         });
     },
     [user],

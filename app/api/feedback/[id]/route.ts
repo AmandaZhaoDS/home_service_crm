@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic';
 /** PATCH /api/feedback/[id]  — claim or update status */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { id } = await params;
     const { claimedBy, status } = await request.json() as {
       claimedBy?: string;
       status?: 'open' | 'in_progress' | 'done';
@@ -36,7 +37,7 @@ export async function PATCH(
     const { error } = await supabase
       .from('feedback_reports')
       .update(updates)
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('[Feedback PATCH] error:', error.message);
